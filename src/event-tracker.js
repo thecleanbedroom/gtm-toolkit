@@ -202,7 +202,6 @@
                 return;
             }
             _eventTrackerBound = true;
-            self.ensureGtag();
 
             // Link clicks
             if (self.linkPatterns.length) {

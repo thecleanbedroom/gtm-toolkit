@@ -1,8 +1,8 @@
 /**
- * GTM Toolkit v1.2.0 - Bundle
+ * GTM Toolkit v1.3.0 - Bundle
  * Configurable event tracking and user qualification for GA4/GTM
  * Modules: _core, event-tracker, user-qualifier
- * Built: 2026-06-09T23:54:24.862Z
+ * Built: 2026-06-09T23:57:32.290Z
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  *
@@ -382,7 +382,6 @@
                 return;
             }
             _eventTrackerBound = true;
-            self.ensureGtag();
 
             // Link clicks
             if (self.linkPatterns.length) {

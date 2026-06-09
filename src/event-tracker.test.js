@@ -51,17 +51,10 @@ describe('GTMToolkit.EventTracker', function() {
       expect(window.GTMToolkit.version).toBe(pkg.version);
     });
 
-    test('creates gtag shim when gtag is missing', function() {
-      new window.GTMToolkit.EventTracker({});
-      expect(typeof window.gtag).toBe('function');
+    test('initializes dataLayer on first send', function() {
+      var tracker = new window.GTMToolkit.EventTracker({});
+      tracker.send('init_test');
       expect(Array.isArray(window.dataLayer)).toBe(true);
-    });
-
-    test('preserves existing gtag function', function() {
-      var customGtag = function() {};
-      window.gtag = customGtag;
-      new window.GTMToolkit.EventTracker({});
-      expect(window.gtag).toBe(customGtag);
     });
 
     test('applies default config for empty options', function() {
@@ -91,13 +84,14 @@ describe('GTMToolkit.EventTracker', function() {
         ]
       });
 
+      window.dataLayer = window.dataLayer || [];
       var initialLength = window.dataLayer.length;
       tracker1.trackLink(document.createElement('a'));
       tracker2.trackLink(document.createElement('a'));
 
       // Neither direct call should fire because links have no href
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_phone';
+        return entry.event === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -183,19 +177,13 @@ describe('GTMToolkit.EventTracker', function() {
   // gtag / send
   // -----------------------------------------------------------------------
   describe('send', function() {
-    test('pushes event to dataLayer via gtag', function() {
+    test('pushes event to dataLayer via dataLayer.push', function() {
       var tracker = new window.GTMToolkit.EventTracker({});
       tracker.send('test_event', { foo: 'bar' });
 
-      // gtag shim pushes Arguments objects to dataLayer
-      var found = false;
-      for (var i = 0; i < window.dataLayer.length; i++) {
-        var entry = window.dataLayer[i];
-        if (entry[0] === 'event' && entry[1] === 'test_event') {
-          found = true;
-          expect(entry[2].foo).toBe('bar');
-        }
-      }
+      var found = window.dataLayer.some(function(entry) {
+        return entry.event === 'test_event' && entry.foo === 'bar';
+      });
       expect(found).toBe(true);
     });
 
@@ -221,7 +209,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var found = window.dataLayer.some(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_phone';
+        return entry.event === 'click_phone';
       });
       expect(found).toBe(true);
     });
@@ -252,11 +240,12 @@ describe('GTMToolkit.EventTracker', function() {
       var link = document.createElement('a');
       link.href = 'tel:+15551234567';
 
+      window.dataLayer = window.dataLayer || [];
       var initialLength = window.dataLayer.length;
       tracker.trackLink(link);
 
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_phone';
+        return entry.event === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -274,7 +263,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var found = window.dataLayer.some(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_phone';
+        return entry.event === 'click_phone';
       });
       expect(found).toBe(true);
     });
@@ -286,13 +275,14 @@ describe('GTMToolkit.EventTracker', function() {
         ]
       });
 
+      window.dataLayer = window.dataLayer || [];
       var initialLength = window.dataLayer.length;
       var link = document.createElement('a');
       link.href = 'https://example.com';
       tracker.trackLink(link);
 
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_phone';
+        return entry.event === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -304,6 +294,7 @@ describe('GTMToolkit.EventTracker', function() {
         ]
       });
 
+      window.dataLayer = window.dataLayer || [];
       var initialLength = window.dataLayer.length;
       var link = document.createElement('a');
       tracker.trackLink(link);
@@ -329,7 +320,7 @@ describe('GTMToolkit.EventTracker', function() {
       btn.click();
 
       var found = window.dataLayer.some(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_chat';
+        return entry.event === 'click_chat';
       });
       expect(found).toBe(true);
       document.body.removeChild(btn);
@@ -351,7 +342,7 @@ describe('GTMToolkit.EventTracker', function() {
       span.click();
 
       var found = window.dataLayer.some(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_chat';
+        return entry.event === 'click_chat';
       });
       expect(found).toBe(true);
       document.body.removeChild(btn);
@@ -364,6 +355,7 @@ describe('GTMToolkit.EventTracker', function() {
         ]
       });
 
+      window.dataLayer = window.dataLayer || [];
       var initialLength = window.dataLayer.length;
       var btn = document.createElement('button');
       btn.className = 'mobile-cta';
@@ -371,7 +363,7 @@ describe('GTMToolkit.EventTracker', function() {
       btn.click();
 
       var ctaEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry[0] === 'event' && entry[1] === 'click_cta';
+        return entry.event === 'click_cta';
       });
       expect(ctaEvents.length).toBe(0);
       document.body.removeChild(btn);
@@ -406,7 +398,7 @@ describe('GTMToolkit.EventTracker', function() {
       // MutationObserver is async - check on next tick
       setTimeout(function() {
         var found = window.dataLayer.some(function(entry) {
-          return entry[0] === 'event' && entry[1] === 'form_submit';
+          return entry.event === 'form_submit';
         });
         expect(found).toBe(true);
         document.body.removeChild(form);
@@ -447,9 +439,9 @@ describe('GTMToolkit.EventTracker', function() {
   // send error handling
   // -----------------------------------------------------------------------
   describe('send error handling', function() {
-    test('returns false when gtag throws', function() {
+    test('returns false when dataLayer.push throws', function() {
       var tracker = new window.GTMToolkit.EventTracker({});
-      window.gtag = function() { throw new Error('gtag failure'); };
+      window.dataLayer = { push: function() { throw new Error('push failure'); } };
 
       var spy = jest.spyOn(console, 'error').mockImplementation(function() {});
       var result = tracker.send('test_event');

@@ -2,7 +2,7 @@
  * GTM Toolkit v1.1.0 - Bundle
  * Configurable event tracking and user qualification for GA4/GTM
  * Modules: _core, event-tracker, user-qualifier
- * Built: 2026-06-09T21:51:22.301Z
+ * Built: 2026-06-09T21:57:47.766Z
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  *

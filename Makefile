@@ -1,10 +1,15 @@
-.PHONY: help install update lint lint-fix test build clean watch
+.PHONY: help install update lint lint-fix test build clean watch setup
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install dependencies
+install: setup ## Install dependencies
 	npm install
+
+setup: ## Install git hooks
+	cp scripts/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "Git hooks installed"
 
 update: ## Update all packages to latest compatible versions
 	npm update

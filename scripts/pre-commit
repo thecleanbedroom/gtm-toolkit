@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit hook: rebuild dist and stage it
+# Ensures dist/ is always in sync with source when committing
+
+# Only rebuild if source files are staged
+STAGED_SRC=$(git diff --cached --name-only -- 'src/*.js' 'scripts/*.js' 'package.json')
+
+if [ -n "$STAGED_SRC" ]; then
+  echo "Source files changed, rebuilding dist..."
+  npm run build
+  git add dist/
+fi

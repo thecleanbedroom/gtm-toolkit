@@ -2,6 +2,7 @@
 
 var fs = require('fs');
 var path = require('path');
+var pkg = require(path.join(__dirname, '..', 'package.json'));
 
 var coreContent = fs.readFileSync(
   path.join(__dirname, '_core.js'),
@@ -53,7 +54,7 @@ describe('GTMToolkit.UserQualifier', function() {
   describe('initialization', function() {
     test('sets version on namespace', function() {
       new window.GTMToolkit.UserQualifier({});
-      expect(window.GTMToolkit.version).toBe('1.1.0');
+      expect(window.GTMToolkit.version).toBe(pkg.version);
     });
 
     test('applies default config', function() {

@@ -92,24 +92,27 @@
         // ---------------------------------------------------------------
         // gtag interface
         // ---------------------------------------------------------------
-        self.ensureGtag = function() {
-            if (typeof window.gtag !== 'function') {
-                self.log('gtag not yet available, creating dataLayer shim');
-                window.dataLayer = window.dataLayer || [];
-                window.gtag = function() {
-                    window.dataLayer.push(arguments);
-                };
-            }
-        };
-
+        /**
+         * Sends an event to GTM via dataLayer.push.
+         * @param {string} eventName - The event name.
+         * @param {Object} [params={}] - Additional event parameters.
+         * @returns {boolean} True if push succeeded.
+         */
         self.send = function(eventName, params) {
-            self.ensureGtag();
+            window.dataLayer = window.dataLayer || [];
             try {
-                window.gtag('event', eventName, params || {});
-                self.log('Sent:', eventName, params || {});
+                var payload = { event: eventName };
+                var p = params || {};
+                for (var key in p) {
+                    if (p.hasOwnProperty(key)) {
+                        payload[key] = p[key];
+                    }
+                }
+                window.dataLayer.push(payload);
+                self.log('Pushed:', eventName, params || {});
                 return true;
             } catch (e) {
-                self.error('Failed to send:', eventName, e);
+                self.error('Failed to push:', eventName, e);
                 return false;
             }
         };

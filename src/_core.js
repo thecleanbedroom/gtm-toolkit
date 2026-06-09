@@ -11,7 +11,7 @@
 
     var GTMToolkit = window.GTMToolkit || {};
 
-    GTMToolkit.version = '1.2.0';
+    GTMToolkit.version = '1.3.0';
     GTMToolkit.debug = false;
 
     /**

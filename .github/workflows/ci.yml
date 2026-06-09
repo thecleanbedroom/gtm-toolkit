@@ -32,6 +32,8 @@ jobs:
       - name: Purge jsDelivr CDN cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
+          echo "Waiting 30s for GitHub CDN to propagate..."
+          sleep 30
           curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.js" || true
           curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js" || true
           echo "jsDelivr cache purged"

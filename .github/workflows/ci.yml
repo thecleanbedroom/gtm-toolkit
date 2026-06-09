@@ -10,7 +10,7 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -28,15 +28,6 @@ jobs:
 
       - name: Build dist bundle
         run: npm run build
-
-      - name: Commit dist
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dist/
-          git diff --cached --quiet || git commit -m "build: update dist bundle [skip ci]"
-          git push
 
       - name: Purge jsDelivr CDN cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

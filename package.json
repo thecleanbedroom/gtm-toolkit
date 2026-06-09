@@ -1,6 +1,6 @@
 {
   "name": "gtm-toolkit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Configurable event tracking and user qualification for GA4/GTM",
   "repository": "thecleanbedroom/gtm-toolkit",
   "license": "MIT",

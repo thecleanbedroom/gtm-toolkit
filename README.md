@@ -37,7 +37,7 @@ Load the minified bundle from jsDelivr and initialize:
 </script>
 ```
 
-Place this in a **GTM Custom HTML tag** or before `</body>` in your site's HTML.
+Place this in a **GTM Custom HTML tag** triggered on **DOM Ready** (`gtm.dom`), or before `</body>` in your site's HTML. The toolkit requires `document.body` to exist (for click listeners and MutationObserver), so the Page View trigger (`gtm.js`) is too early.
 
 ## Complete Configuration
 

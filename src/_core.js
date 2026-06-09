@@ -46,7 +46,27 @@
         config = config || {};
         if (config.debug) { GTMToolkit.debug = true; }
 
+        // Auto-enable debug when Google Tag Assistant previewer is active
+        if (!GTMToolkit.debug && window.location.search.indexOf('gtm_debug') !== -1) {
+            GTMToolkit.debug = true;
+        }
+
         var logger = GTMToolkit.createLogger('[GTMToolkit]');
+
+        // Collect registered event names from config for GTM trigger matching
+        var events = [];
+        if (config.eventTracker) {
+            var et = config.eventTracker;
+            (et.linkPatterns || []).forEach(function(p) { events.push(p.event); });
+            (et.clickPatterns || []).forEach(function(p) { events.push(p.event); });
+            (et.formPatterns || []).forEach(function(p) { events.push(p.event); });
+        }
+        if (config.userQualifier) {
+            var checks = config.userQualifier.checks || {};
+            if (checks.include !== false) { events.push('ga_user_include'); }
+            if (checks.gclid !== false) { events.push('hasGclid'); }
+        }
+        GTMToolkit.registeredEvents = events;
 
         if (config.eventTracker && GTMToolkit._modules.EventTracker) {
             GTMToolkit._modules.EventTracker(config.eventTracker);
@@ -58,6 +78,7 @@
             logger.log('UserQualifier initialized');
         }
 
+        logger.log('Registered events:', events.join(', '));
         logger.log('v' + GTMToolkit.version, 'ready');
     };
 

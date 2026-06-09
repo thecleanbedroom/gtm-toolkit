@@ -44,10 +44,21 @@
      */
     GTMToolkit.init = function(config) {
         config = config || {};
+
+        if (GTMToolkit._initialized) {
+            var warn = GTMToolkit.createLogger('[GTMToolkit]');
+            warn.log('WARNING: init() called again, ignoring. Toolkit already initialized.');
+            return;
+        }
+        GTMToolkit._initialized = true;
+
         if (config.debug) { GTMToolkit.debug = true; }
 
-        // Auto-enable debug when Google Tag Assistant previewer is active
-        if (!GTMToolkit.debug && window.location.search.indexOf('gtm_debug') !== -1) {
+        // Auto-enable debug when Tag Assistant or gtm_debug is detected
+        var isTagAssistant = !!window.__TAG_ASSISTANT_API ||
+            window.location.search.indexOf('gtm_debug') !== -1 ||
+            document.cookie.indexOf('gtm_debug') !== -1;
+        if (!GTMToolkit.debug && isTagAssistant) {
             GTMToolkit.debug = true;
         }
 
@@ -82,7 +93,7 @@
         logger.log('v' + GTMToolkit.version, 'ready');
 
         // Render test panel when Tag Assistant is active
-        if (GTMToolkit.debug && window.location.search.indexOf('gtm_debug') !== -1) {
+        if (GTMToolkit.debug && isTagAssistant) {
             _renderTestPanel(config);
         }
     };

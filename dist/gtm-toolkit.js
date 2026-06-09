@@ -2,7 +2,7 @@
  * GTM Toolkit v1.2.0 - Bundle
  * Configurable event tracking and user qualification for GA4/GTM
  * Modules: _core, event-tracker, user-qualifier
- * Built: 2026-06-09T22:56:22.055Z
+ * Built: 2026-06-09T23:16:06.732Z
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  *
@@ -54,10 +54,21 @@
      */
     GTMToolkit.init = function(config) {
         config = config || {};
+
+        if (GTMToolkit._initialized) {
+            var warn = GTMToolkit.createLogger('[GTMToolkit]');
+            warn.log('WARNING: init() called again, ignoring. Toolkit already initialized.');
+            return;
+        }
+        GTMToolkit._initialized = true;
+
         if (config.debug) { GTMToolkit.debug = true; }
 
-        // Auto-enable debug when Google Tag Assistant previewer is active
-        if (!GTMToolkit.debug && window.location.search.indexOf('gtm_debug') !== -1) {
+        // Auto-enable debug when Tag Assistant or gtm_debug is detected
+        var isTagAssistant = !!window.__TAG_ASSISTANT_API ||
+            window.location.search.indexOf('gtm_debug') !== -1 ||
+            document.cookie.indexOf('gtm_debug') !== -1;
+        if (!GTMToolkit.debug && isTagAssistant) {
             GTMToolkit.debug = true;
         }
 
@@ -92,7 +103,7 @@
         logger.log('v' + GTMToolkit.version, 'ready');
 
         // Render test panel when Tag Assistant is active
-        if (GTMToolkit.debug && window.location.search.indexOf('gtm_debug') !== -1) {
+        if (GTMToolkit.debug && isTagAssistant) {
             _renderTestPanel(config);
         }
     };

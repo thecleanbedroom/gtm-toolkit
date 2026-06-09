@@ -1,0 +1,45 @@
+{
+  "env": {
+    "browser": true,
+    "es6": false
+  },
+  "parserOptions": {
+    "ecmaVersion": 5
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": ["warn", { "args": "none" }],
+    "no-redeclare": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-implicit-globals": "error",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-wrappers": "error",
+    "curly": "error",
+    "semi": ["error", "always"]
+  },
+  "overrides": [
+    {
+      "files": ["*.test.js"],
+      "env": {
+        "jest": true,
+        "node": true
+      },
+      "parserOptions": {
+        "ecmaVersion": 2020
+      },
+      "rules": {
+        "no-eval": "off"
+      }
+    },
+    {
+      "files": ["scripts/**/*.js"],
+      "env": {
+        "node": true
+      },
+      "parserOptions": {
+        "ecmaVersion": 2020
+      }
+    }
+  ]
+}

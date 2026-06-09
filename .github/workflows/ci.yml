@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build dist bundle
+        run: npm run build
+
+      - name: Commit dist
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/
+          git diff --cached --quiet || git commit -m "build: update dist bundle [skip ci]"
+          git push
+
+      - name: Purge jsDelivr CDN cache
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.js" || true
+          curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js" || true
+          echo "jsDelivr cache purged"

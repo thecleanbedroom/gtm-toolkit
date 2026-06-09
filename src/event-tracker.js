@@ -1,49 +1,32 @@
 /**
  * GTM Toolkit - Event Tracker
- * @version 1.0.0
  * @description Configurable event tracking for GA4/GTM via gtag.
  *              Tracks link clicks (tel, mailto, maps), CSS-based click
  *              events, and form submissions via DOM observation.
+ *              Supports mobileOnly gating with optional UAParser integration.
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
- *
- * Usage (GTM Custom HTML tag):
- *
- *   <script src="https://cdn.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@1.0.0/event-tracker/event-tracker.js"></script>
- *   <script>
- *     new GTMToolkit.EventTracker({
- *       debug: false,
- *       linkPatterns: [
- *         { pattern: /^tel:/i, event: 'click_phone' },
- *         { pattern: /^mailto:/i, event: 'click_email' },
- *         { pattern: /(goo\.gl\/maps|google\.com\/maps|maps\.google\.com|maps\.app\.goo\.gl)/i, event: 'click_directions', newTab: true }
- *       ],
- *       clickPatterns: [
- *         { selector: '.chat-open-link', event: 'click_chat' }
- *       ],
- *       formPatterns: [
- *         { formSelector: '.frm-fluent-form', successSelector: '.ff-message-success', event: 'form_submit' }
- *       ]
- *     });
- *   </script>
  */
 (function() {
     'use strict';
 
-    var GTMToolkit = window.GTMToolkit || {};
+    var GTMToolkit = window.GTMToolkit;
+    var _eventTrackerBound = false;
 
     /**
      * EventTracker - Configurable event tracking via gtag.
      * @constructor
-     * @param {Object} config
-     * @param {boolean}  [config.debug=false]          - Enable verbose console logging.
+     * @param {Object}   [config]
+     * @param {Function} [config.deviceDetector]        - Custom function returning 'mobile', 'tablet', or 'desktop'.
      * @param {Array}    [config.linkPatterns=[]]       - URL-based patterns matched against href.
      * @param {Object}   config.linkPatterns[].pattern  - RegExp to match against link href.
      * @param {string}   config.linkPatterns[].event    - gtag event name to fire.
      * @param {boolean}  [config.linkPatterns[].newTab] - Force matched links to open in a new tab.
+     * @param {boolean}  [config.linkPatterns[].mobileOnly] - Only fire on mobile devices.
      * @param {Array}    [config.clickPatterns=[]]      - CSS selector-based click patterns.
      * @param {string}   config.clickPatterns[].selector - CSS selector to match clicked elements.
      * @param {string}   config.clickPatterns[].event    - gtag event name to fire.
+     * @param {boolean}  [config.clickPatterns[].mobileOnly] - Only fire on mobile devices.
      * @param {Array}    [config.formPatterns=[]]       - DOM observation-based form tracking.
      * @param {string}   config.formPatterns[].formSelector    - CSS selector for the form container.
      * @param {string}   config.formPatterns[].successSelector - CSS selector for the success element.
@@ -51,27 +34,59 @@
      */
     GTMToolkit.EventTracker = function(config) {
         var self = this;
+        config = config || {};
 
-        // ---------------------------------------------------------------
-        // Config
-        // ---------------------------------------------------------------
-        self.version = '1.0.0';
-        self.debug = config.debug || false;
         self.linkPatterns = config.linkPatterns || [];
         self.clickPatterns = config.clickPatterns || [];
         self.formPatterns = config.formPatterns || [];
+        self.deviceDetector = config.deviceDetector || null;
 
         // ---------------------------------------------------------------
-        // Logging
+        // Logging (via shared factory)
         // ---------------------------------------------------------------
-        self.log = function() {
-            if (self.debug) {
-                console.log.apply(console, ['[GTMToolkit.EventTracker]'].concat(Array.prototype.slice.call(arguments)));
+        var logger = GTMToolkit.createLogger('[GTMToolkit.EventTracker]');
+        self.log = logger.log;
+        self.error = logger.error;
+
+        // ---------------------------------------------------------------
+        // Device detection
+        // ---------------------------------------------------------------
+
+        /**
+         * Detects device type. Uses three-tier strategy:
+         *   1. Custom deviceDetector function (if provided)
+         *   2. UAParser (if loaded globally)
+         *   3. Built-in lightweight regex + touch fallback
+         * @returns {string} 'mobile', 'tablet', or 'desktop'
+         */
+        self.detectDevice = function() {
+            // Tier 1: custom detector
+            if (typeof self.deviceDetector === 'function') {
+                return self.deviceDetector();
             }
+
+            // Tier 2: UAParser (auto-detected if loaded)
+            if (typeof window.UAParser === 'function') {
+                var ua = (new window.UAParser()).getResult();
+                if (ua && ua.device && ua.device.type) {
+                    return ua.device.type; // 'mobile', 'tablet', etc.
+                }
+                return 'desktop';
+            }
+
+            // Tier 3: built-in lightweight check
+            var agent = navigator.userAgent || '';
+            if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(agent)) {
+                return 'mobile';
+            }
+            if (/iPad|Android(?!.*Mobile)|Tablet/i.test(agent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(agent))) {
+                return 'tablet';
+            }
+            return 'desktop';
         };
 
-        self.error = function() {
-            console.error.apply(console, ['[GTMToolkit.EventTracker]'].concat(Array.prototype.slice.call(arguments)));
+        self.isMobile = function() {
+            return self.detectDevice() === 'mobile';
         };
 
         // ---------------------------------------------------------------
@@ -104,11 +119,15 @@
         // ---------------------------------------------------------------
         self.trackLink = function(link) {
             var href = link.href || '';
-            if (!href) return;
+            if (!href) { return; }
 
             for (var i = 0; i < self.linkPatterns.length; i++) {
                 var p = self.linkPatterns[i];
                 if (href.match(p.pattern)) {
+                    if (p.mobileOnly && !self.isMobile()) {
+                        self.log('Skipped (not mobile):', p.event);
+                        return;
+                    }
                     self.send(p.event, { link_url: href });
                     if (p.newTab) {
                         link.setAttribute('target', '_blank');
@@ -128,6 +147,10 @@
             for (var i = 0; i < self.clickPatterns.length; i++) {
                 var p = self.clickPatterns[i];
                 if (element.closest(p.selector)) {
+                    if (p.mobileOnly && !self.isMobile()) {
+                        self.log('Skipped (not mobile):', p.event);
+                        return;
+                    }
                     self.send(p.event);
                     return;
                 }
@@ -137,13 +160,13 @@
         // ---------------------------------------------------------------
         // Form tracking (MutationObserver-based)
         // ---------------------------------------------------------------
-        self.observeForms = function() {
-            if (!self.formPatterns.length) return;
+        self.trackForms = function() {
+            if (!self.formPatterns.length) { return; }
 
             var observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                     mutation.addedNodes.forEach(function(node) {
-                        if (node.nodeType !== 1) return;
+                        if (node.nodeType !== 1) { return; }
 
                         self.formPatterns.forEach(function(fp) {
                             var match = (node.matches && node.matches(fp.successSelector))
@@ -171,6 +194,11 @@
         // Initialization
         // ---------------------------------------------------------------
         self.init = function() {
+            if (_eventTrackerBound) {
+                self.log('EventTracker already initialized, skipping duplicate');
+                return;
+            }
+            _eventTrackerBound = true;
             self.ensureGtag();
 
             // Link clicks
@@ -201,14 +229,17 @@
             }
 
             // Form observation
-            self.observeForms();
+            self.trackForms();
 
-            self.log('v' + self.version, 'initialized');
+            self.log('initialized');
         };
 
         self.init();
     };
 
-    window.GTMToolkit = GTMToolkit;
-})();
+    // Register with core - init() will call this
+    GTMToolkit._modules.EventTracker = function(config) {
+        return new GTMToolkit.EventTracker(config);
+    };
 
+})();

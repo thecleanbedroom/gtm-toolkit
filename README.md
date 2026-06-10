@@ -11,12 +11,15 @@ Load the minified bundle from jsDelivr and configure with the fluent API:
 ```html
 <script src="https://cdn.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js"></script>
 <script>
-  GTMToolkit
-    .onLinkClick('tel:', 'click_phone').onlyMobile()
-    .onLinkClick('mailto:', 'click_email')
-    .onLinkClick(/(goo\.gl\/maps|maps\.google\.com)/i, 'click_directions').newTab()
-    .onSelectorClick('.chat-open-link', 'click_chat')
-    .onFormSubmit('.frm-fluent-form', '.ff-message-success', 'form_submit')
+  GTMToolkit.onLinkClick("tel:", "click_phone")
+    .onlyMobile()
+    .onLinkClick("mailto:", "click_email")
+    .onLinkClick(/(goo\.gl\/maps|maps\.google\.com)/i, "click_directions")
+    .newTab()
+    .onLinkClick(["google.com/maps", "maps.google.com"], "click_directions")
+    .newTab()
+    .onSelectorClick(".chat-open-link", "click_chat")
+    .onFormSubmit(".frm-fluent-form", ".ff-message-success", "form_submit")
     .start();
 </script>
 ```
@@ -50,43 +53,51 @@ On `.start()`, the toolkit activates three modules in order:
   GTMToolkit
 
     // -- Global settings -------------------------------------------
-    .toGTMDefault()           // Default transport: dataLayer.push (default)
+    .toGTMDefault() // Default transport: dataLayer.push (default)
     // .toGADefault()         // Or: default transport: gtag('event', ...)
-    .cookieExpiry(30)         // Cookie lifetime in days (default: 30)
-    .debug(true)              // Force debug logging on (default: auto-detect)
+    .cookieExpiry(30) // Cookie lifetime in days (default: 30)
+    .debug(true) // Force debug logging on (default: auto-detect)
 
     // -- Link click rules ------------------------------------------
     // Match <a> href against string, array of strings, or RegExp
 
     // Track phone taps, mobile only
-    .onLinkClick('tel:', 'click_phone').onlyMobile()
+    .onLinkClick("tel:", "click_phone")
+    .onlyMobile()
 
     // Track email clicks
-    .onLinkClick('mailto:', 'click_email')
+    .onLinkClick("mailto:", "click_email")
 
     // Track Google Maps links, force new tab
     .onLinkClick(
-      ['goo.gl/maps', 'maps.google.com', 'maps.app.goo.gl'],
-      'click_directions'
-    ).newTab()
+      ["goo.gl/maps", "maps.google.com", "maps.app.goo.gl"],
+      "click_directions",
+    )
+    .newTab()
 
     // Track with RegExp
-    .onLinkClick(/example\.com\/pricing/i, 'click_pricing')
+    .onLinkClick(/example\.com\/pricing/i, "click_pricing")
 
     // Override transport for a specific rule
-    .onLinkClick('tel:', 'click_phone_ga').toGA()
+    .onLinkClick("tel:", "click_phone_ga")
+    .toGA()
 
     // -- Selector click rules --------------------------------------
     // Match any click by CSS selector (uses Element.closest)
 
-    .onSelectorClick('.chat-open-link', 'click_chat')
-    .onSelectorClick('.mobile-cta', 'click_cta').onlyMobile()
+    .onSelectorClick(".chat-open-link", "click_chat")
+    .onSelectorClick(".mobile-cta", "click_cta")
+    .onlyMobile()
 
     // -- Form submission rules -------------------------------------
     // Detect AJAX form submissions via MutationObserver
 
-    .onFormSubmit('.frm-fluent-form', '.ff-message-success', 'form_submit')
-    .onFormSubmit('#gform_1', '.gform_confirmation_message', 'gravity_form_submit')
+    .onFormSubmit(".frm-fluent-form", ".ff-message-success", "form_submit")
+    .onFormSubmit(
+      "#gform_1",
+      ".gform_confirmation_message",
+      "gravity_form_submit",
+    )
 
     // -- Start -----------------------------------------------------
     .start();
@@ -99,55 +110,57 @@ On `.start()`, the toolkit activates three modules in order:
 
 Every method returns `GTMToolkit` for chaining.
 
-| Method | Description | Default |
-|--------|-------------|---------|
-| `.toGTMDefault()` | Set default transport to `dataLayer.push` | `dataLayer` |
-| `.toGADefault()` | Set default transport to `gtag('event', ...)` | -- |
-| `.cookieExpiry(days)` | Set cookie lifetime in days for signals | `30` |
-| `.debug(bool)` | Force debug mode on or off | Auto-detect |
-| `.start()` | Initialize the toolkit. Idempotent. | -- |
+| Method                | Description                                   | Default     |
+| --------------------- | --------------------------------------------- | ----------- |
+| `.toGTMDefault()`     | Set default transport to `dataLayer.push`     | `dataLayer` |
+| `.toGADefault()`      | Set default transport to `gtag('event', ...)` | --          |
+| `.cookieExpiry(days)` | Set cookie lifetime in days for signals       | `30`        |
+| `.debug(bool)`        | Force debug mode on or off                    | Auto-detect |
+| `.start()`            | Initialize the toolkit. Idempotent.           | --          |
 
 ### Rule Registration
 
-| Method | Arguments | Description |
-|--------|-----------|-------------|
-| `.onLinkClick(match, event)` | `match`: `string`, `string[]`, or `RegExp`; `event`: event name | Push event when a clicked `<a>` href matches |
-| `.onSelectorClick(selector, event)` | `selector`: CSS selector; `event`: event name | Push event when a clicked element matches |
+| Method                                                | Arguments                                                             | Description                                         |
+| ----------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
+| `.onLinkClick(match, event)`                          | `match`: `string`, `string[]`, or `RegExp`; `event`: event name       | Push event when a clicked `<a>` href matches        |
+| `.onSelectorClick(selector, event)`                   | `selector`: CSS selector; `event`: event name                         | Push event when a clicked element matches           |
 | `.onFormSubmit(formSelector, successSelector, event)` | `formSelector`, `successSelector`: CSS selectors; `event`: event name | Push event when success element appears inside form |
 
 ### Per-Rule Modifiers
 
 Call these immediately after a rule registration method. They apply to the most recently registered rule.
 
-| Method | Description |
-|--------|-------------|
-| `.onlyMobile()` | Only fire on mobile devices (not tablets, not desktop) |
-| `.newTab()` | Force matched links to open in a new tab (`target="_blank"`) |
-| `.toGA()` | Override this rule's transport to `gtag` |
-| `.toGTM()` | Override this rule's transport to `dataLayer` |
+| Method          | Description                                                  |
+| --------------- | ------------------------------------------------------------ |
+| `.onlyMobile()` | Only fire on mobile devices (not tablets, not desktop)       |
+| `.newTab()`     | Force matched links to open in a new tab (`target="_blank"`) |
+| `.toGA()`       | Override this rule's transport to `gtag`                     |
+| `.toGTM()`      | Override this rule's transport to `dataLayer`                |
 
 ### Link Matching
 
 `.onLinkClick()` supports three match types:
 
-| Type | Example | Behavior |
-|------|---------|----------|
-| **String** | `'tel:'` | `href.indexOf(match) !== -1` |
-| **Array** | `['goo.gl/maps', 'maps.google.com']` | True if any string matches via indexOf |
-| **RegExp** | `/example\.com\/pricing/i` | `match.test(href)` |
+| Type       | Example                              | Behavior                               |
+| ---------- | ------------------------------------ | -------------------------------------- |
+| **String** | `'tel:'`                             | `href.indexOf(match) !== -1`           |
+| **Array**  | `['goo.gl/maps', 'maps.google.com']` | True if any string matches via indexOf |
+| **RegExp** | `/example\.com\/pricing/i`           | `match.test(href)`                     |
 
 ## Debug Mode
 
 Debug mode enables verbose console logging for all modules.
 
 **Auto-detection** (when `.debug()` is not called): debug mode activates automatically if any of these are true:
+
 - Google Tag Assistant is running (`window.__TAG_ASSISTANT_API` exists)
 - URL contains `?gtm_debug` parameter
 - A `gtm_debug` cookie is set
 
 **Explicit override**: Call `.debug(true)` or `.debug(false)` to force debug mode regardless of auto-detection.
 
-**Test Panel**: When debug mode is active *and* Tag Assistant is running, a floating bar appears at the bottom of the page with clickable test elements for every registered rule:
+**Test Panel**: When debug mode is active _and_ Tag Assistant is running, a floating bar appears at the bottom of the page with clickable test elements for every registered rule:
+
 - Link rules get a sample `<a>` element with the correct href
 - Selector rules get a `<button>` with the matching class
 - Form rules get a "simulate" button that injects a success element
@@ -158,19 +171,19 @@ Signals run automatically on `.start()` and push cookie-based user context into 
 
 ### Cookies Set
 
-| Cookie | Value | Lifetime | Purpose |
-|--------|-------|----------|---------|
-| `ga_user_has_js` | `1` | 365 days | Proves JavaScript ran (filters bots/crawlers) |
-| `ga_user_page_views` | Incrementing count | Configurable (default 30 days) | Session depth tracking |
-| `ga_user_include` | `1` | 1 day | Marks returning visitors |
-| `ga_user_from_ad` | `0` or `1` | Configurable (default 30 days) | Persists Google Ads click attribution |
+| Cookie               | Value              | Lifetime                       | Purpose                                       |
+| -------------------- | ------------------ | ------------------------------ | --------------------------------------------- |
+| `ga_user_has_js`     | `1`                | 365 days                       | Proves JavaScript ran (filters bots/crawlers) |
+| `ga_user_page_views` | Incrementing count | Configurable (default 30 days) | Session depth tracking                        |
+| `ga_user_include`    | `1`                | 1 day                          | Marks returning visitors                      |
+| `ga_user_from_ad`    | `0` or `1`         | Configurable (default 30 days) | Persists Google Ads click attribution         |
 
 ### Events Pushed
 
-| Event | Condition | Parameters |
-|-------|-----------|------------|
-| `ga_user_include` | Page views > 1 (returning visitor) | `{ value: 1 }` |
-| `hasGclid` | `ga_user_from_ad` cookie is `1` (return visit after ad click) | `{ value: 1 }` |
+| Event             | Condition                                                     | Parameters     |
+| ----------------- | ------------------------------------------------------------- | -------------- |
+| `ga_user_include` | Page views > 1 (returning visitor)                            | `{ value: 1 }` |
+| `hasGclid`        | `ga_user_from_ad` cookie is `1` (return visit after ad click) | `{ value: 1 }` |
 
 ## Device Detection
 
@@ -185,10 +198,10 @@ Mobile means phone only. Tablets and desktops are excluded.
 
 The toolkit supports two transport mechanisms:
 
-| Transport | Push method | When to use |
-|-----------|-------------|-------------|
-| `dataLayer` (default) | `window.dataLayer.push({ event: name, ...params })` | GTM-managed sites |
-| `gtag` | `window.gtag('event', name, params)` | Direct GA4 measurement |
+| Transport             | Push method                                         | When to use            |
+| --------------------- | --------------------------------------------------- | ---------------------- |
+| `dataLayer` (default) | `window.dataLayer.push({ event: name, ...params })` | GTM-managed sites      |
+| `gtag`                | `window.gtag('event', name, params)`                | Direct GA4 measurement |
 
 Set the global default with `.toGTMDefault()` or `.toGADefault()`. Override per-rule with `.toGA()` or `.toGTM()`.
 
@@ -254,13 +267,13 @@ make test-verbose       # With per-test output
 
 Coverage (as of v2.0.0):
 
-| File | Statements | Branches | Functions | Lines |
-|------|-----------|----------|-----------|-------|
-| signals.js | 100% | 100% | 100% | 100% |
-| test-panel.js | 100% | 90.9% | 100% | 100% |
-| core.js | 98.4% | 80.8% | 100% | 98.3% |
-| listeners.js | 96.1% | 86.4% | 100% | 96.7% |
-| **Overall** | **98.2%** | **87%** | **100%** | **98.4%** |
+| File          | Statements | Branches | Functions | Lines     |
+| ------------- | ---------- | -------- | --------- | --------- |
+| signals.js    | 100%       | 100%     | 100%      | 100%      |
+| test-panel.js | 100%       | 90.9%    | 100%      | 100%      |
+| core.js       | 98.4%      | 80.8%    | 100%      | 98.3%     |
+| listeners.js  | 96.1%      | 86.4%    | 100%      | 96.7%     |
+| **Overall**   | **98.2%**  | **87%**  | **100%**  | **98.4%** |
 
 ## Migration from v1
 

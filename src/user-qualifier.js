@@ -60,13 +60,14 @@
         // Cookie helpers
         // ---------------------------------------------------------------
         self.getCookie = function(name) {
-            var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+            var escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            var v = document.cookie.match('(^|;) ?' + escaped + '=([^;]*)(;|$)');
             return v ? v[2] : null;
         };
 
         self.setCookie = function(name, value, days) {
             var d = new Date();
-            d.setTime(d.getTime() + 24 * 60 * 60 * 1000 * (days || self.cookieExpiry));
+            d.setTime(d.getTime() + 24 * 60 * 60 * 1000 * (days != null ? days : self.cookieExpiry));
             document.cookie = name + '=' + value + ';path=/;expires=' + d.toGMTString() + ';SameSite=Lax;Secure';
         };
 
@@ -79,14 +80,6 @@
             return val !== null && val !== '';
         };
 
-        // ---------------------------------------------------------------
-        // dataLayer interface
-        // ---------------------------------------------------------------
-        self.push = function(event) {
-            window.dataLayer = window.dataLayer || [];
-            window.dataLayer.push(event);
-            self.log('Pushed:', event);
-        };
 
         // ---------------------------------------------------------------
         // Qualification checks
@@ -124,10 +117,7 @@
          */
         self.setInclude = function() {
             if (self.hasCookie(self.keys.pageViews)) {
-                self.push({
-                    'event': self.keys.include,
-                    'value': 1
-                });
+                GTMToolkit.push(self.keys.include, { value: 1 }, '[GTMToolkit.UserQualifier]');
                 self.setCookie(self.keys.include, 1, 1);
                 self.log('User included');
             }
@@ -141,15 +131,12 @@
             var key = self.keys.gclid;
 
             if (self.hasCookie(key) && self.getCookie(key) === '1') {
-                self.push({
-                    'event': 'hasGclid',
-                    'value': 1
-                });
+                GTMToolkit.push('hasGclid', { value: 1 }, '[GTMToolkit.UserQualifier]');
                 self.log('Returning gclid user');
                 return;
             }
 
-            var match = window.location.href.match(/gclid=([^&]+)/);
+            var match = window.location.search.match(/[?&]gclid=([^&]+)/);
             var hasGclid = match && match[1] ? 1 : 0;
             self.setCookie(key, hasGclid, self.cookieExpiry);
             self.log('Gclid detected:', !!hasGclid);
@@ -168,11 +155,6 @@
         };
 
         self.init();
-    };
-
-    // Register with core - init() will call this
-    GTMToolkit._modules.UserQualifier = function(config) {
-        return new GTMToolkit.UserQualifier(config);
     };
 
 })();

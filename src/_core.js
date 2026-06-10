@@ -32,8 +32,43 @@
         };
     };
 
-    // Module registry - modules register themselves here
-    GTMToolkit._modules = {};
+    /**
+     * Ensures window.gtag exists. Creates a dataLayer shim if gtag.js
+     * hasn't loaded yet - queued events are processed once it does.
+     */
+    GTMToolkit._ensureTransport = function() {
+        if (typeof window.gtag !== 'function') {
+            window.dataLayer = window.dataLayer || [];
+            window.gtag = function() {
+                window.dataLayer.push(arguments);
+            };
+        }
+    };
+
+    /**
+     * Central event transport. All modules use this to push events.
+     * Currently sends via gtag() which goes directly to GA4.
+     * @param {string} eventName - The event name.
+     * @param {Object} [params={}] - Additional event parameters.
+     * @returns {boolean} True if push succeeded.
+     */
+    GTMToolkit.push = function(eventName, params, source) {
+        GTMToolkit._ensureTransport();
+        try {
+            window.gtag('event', eventName, params || {});
+            if (source) {
+                var successLogger = GTMToolkit.createLogger(source);
+                successLogger.log('Push:', eventName, params || {});
+            }
+            return true;
+        } catch (e) {
+            var errorLogger = GTMToolkit.createLogger(source || '[GTMToolkit]');
+            errorLogger.error('Failed to push:', eventName, e);
+            return false;
+        }
+    };
+
+
 
     /**
      * Initialize the toolkit. Single entry point for all configuration.
@@ -46,8 +81,7 @@
         config = config || {};
 
         if (GTMToolkit._initialized) {
-            var warn = GTMToolkit.createLogger('[GTMToolkit]');
-            warn.log('WARNING: init() called again, ignoring. Toolkit already initialized.');
+            console.warn('[GTMToolkit] init() called again, ignoring. Toolkit already initialized.');
             return;
         }
         GTMToolkit._initialized = true;
@@ -79,13 +113,13 @@
         }
         GTMToolkit.registeredEvents = events;
 
-        if (config.eventTracker && GTMToolkit._modules.EventTracker) {
-            GTMToolkit._modules.EventTracker(config.eventTracker);
+        if (config.eventTracker && GTMToolkit.EventTracker) {
+            new GTMToolkit.EventTracker(config.eventTracker);
             logger.log('EventTracker initialized');
         }
 
-        if (config.userQualifier && GTMToolkit._modules.UserQualifier) {
-            GTMToolkit._modules.UserQualifier(config.userQualifier);
+        if (config.userQualifier && GTMToolkit.UserQualifier) {
+            new GTMToolkit.UserQualifier(config.userQualifier);
             logger.log('UserQualifier initialized');
         }
 
@@ -116,13 +150,21 @@
             if (/tel/i.test(src)) { href = 'tel:+15551234567'; icon = '📞'; }
             else if (/mailto/i.test(src)) { href = 'mailto:test@example.com'; icon = '📧'; }
             else if (/maps/i.test(src)) { href = 'https://maps.google.com/maps?q=test'; icon = '📍'; }
-            links.push('<a href="' + href + '" style="' + btnStyle + 'background:#2ecc71;">' + icon + ' ' + p.event + (p.mobileOnly ? ' (mobile)' : '') + '</a>');
+            var a = document.createElement('a');
+            a.href = href;
+            a.setAttribute('style', btnStyle + 'background:#2ecc71;');
+            a.textContent = icon + ' ' + p.event + (p.mobileOnly ? ' (mobile)' : '');
+            links.push(a);
         });
 
         // Generate buttons from clickPatterns
         (et.clickPatterns || []).forEach(function(p) {
-            var cls = p.selector.replace(/^\./, '');
-            links.push('<button class="' + cls + '" style="' + btnStyle + 'background:#9b59b6;">💬 ' + p.event + '</button>');
+            var btn = document.createElement('button');
+            // Strip CSS selector prefixes (., #) to get a usable class name
+            btn.className = p.selector.replace(/^[.#]/, '');
+            btn.setAttribute('style', btnStyle + 'background:#9b59b6;');
+            btn.textContent = '💬 ' + p.event;
+            links.push(btn);
         });
 
         // Generate form simulation buttons from formPatterns
@@ -153,13 +195,7 @@
         panel.appendChild(label);
 
         links.forEach(function(item) {
-            if (typeof item === 'string') {
-                var tmp = document.createElement('span');
-                tmp.innerHTML = item;
-                panel.appendChild(tmp.firstChild);
-            } else {
-                panel.appendChild(item);
-            }
+            panel.appendChild(item);
         });
 
         document.body.appendChild(panel);

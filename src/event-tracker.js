@@ -11,7 +11,6 @@
     'use strict';
 
     var GTMToolkit = window.GTMToolkit;
-    var _eventTrackerBound = false;
 
     /**
      * EventTracker - Configurable event tracking via gtag.
@@ -89,33 +88,6 @@
             return self.detectDevice() === 'mobile';
         };
 
-        // ---------------------------------------------------------------
-        // gtag interface
-        // ---------------------------------------------------------------
-        /**
-         * Sends an event to GTM via dataLayer.push.
-         * @param {string} eventName - The event name.
-         * @param {Object} [params={}] - Additional event parameters.
-         * @returns {boolean} True if push succeeded.
-         */
-        self.send = function(eventName, params) {
-            window.dataLayer = window.dataLayer || [];
-            try {
-                var payload = { event: eventName };
-                var p = params || {};
-                for (var key in p) {
-                    if (p.hasOwnProperty(key)) {
-                        payload[key] = p[key];
-                    }
-                }
-                window.dataLayer.push(payload);
-                self.log('Pushed:', eventName, params || {});
-                return true;
-            } catch (e) {
-                self.error('Failed to push:', eventName, e);
-                return false;
-            }
-        };
 
         // ---------------------------------------------------------------
         // Link tracking (URL pattern matching)
@@ -131,7 +103,7 @@
                         self.log('Skipped (not mobile):', p.event);
                         return;
                     }
-                    self.send(p.event, { link_url: href });
+                    GTMToolkit.push(p.event, { link_url: href }, '[GTMToolkit.EventTracker]');
                     if (p.newTab) {
                         link.setAttribute('target', '_blank');
                         link.setAttribute('rel', 'noopener noreferrer');
@@ -154,7 +126,7 @@
                         self.log('Skipped (not mobile):', p.event);
                         return;
                     }
-                    self.send(p.event);
+                    GTMToolkit.push(p.event, {}, '[GTMToolkit.EventTracker]');
                     return;
                 }
             }
@@ -171,20 +143,24 @@
                     mutation.addedNodes.forEach(function(node) {
                         if (node.nodeType !== 1) { return; }
 
-                        self.formPatterns.forEach(function(fp) {
-                            var match = (node.matches && node.matches(fp.successSelector))
-                                ? node
-                                : (node.querySelector ? node.querySelector(fp.successSelector) : null);
+                        try {
+                            self.formPatterns.forEach(function(fp) {
+                                var match = (node.matches && node.matches(fp.successSelector))
+                                    ? node
+                                    : (node.querySelector ? node.querySelector(fp.successSelector) : null);
 
-                            if (match) {
-                                var form = match.closest(fp.formSelector);
-                                var formId = form
-                                    ? (form.id || form.getAttribute('data-form_id') || 'unknown')
-                                    : 'unknown';
-                                self.log('Form success detected:', fp.formSelector, 'formId:', formId);
-                                self.send(fp.event, { form_id: formId });
-                            }
-                        });
+                                if (match) {
+                                    var form = match.closest(fp.formSelector);
+                                    var formId = form
+                                        ? (form.id || form.getAttribute('data-form_id') || 'unknown')
+                                        : 'unknown';
+                                    self.log('Form success detected:', fp.formSelector, 'formId:', formId);
+                                    GTMToolkit.push(fp.event, { form_id: formId }, '[GTMToolkit.EventTracker]');
+                                }
+                            });
+                        } catch (err) {
+                            self.error('Form tracking error:', err);
+                        }
                     });
                 });
             });
@@ -197,37 +173,30 @@
         // Initialization
         // ---------------------------------------------------------------
         self.init = function() {
-            if (_eventTrackerBound) {
+            if (GTMToolkit._eventTrackerBound) {
                 self.log('EventTracker already initialized, skipping duplicate');
                 return;
             }
-            _eventTrackerBound = true;
+            GTMToolkit._eventTrackerBound = true;
 
-            // Link clicks
-            if (self.linkPatterns.length) {
-                document.addEventListener('click', function(e) {
-                    var link = e.target.closest('a');
-                    if (link) {
-                        try {
-                            self.trackLink(link);
-                        } catch (err) {
-                            self.error('Link tracking error:', err);
-                        }
-                    }
-                });
-                self.log('Link tracking bound for', self.linkPatterns.length, 'pattern(s)');
-            }
-
-            // CSS selector clicks
-            if (self.clickPatterns.length) {
+            // Delegated click handler for link + CSS selector tracking
+            if (self.linkPatterns.length || self.clickPatterns.length) {
                 document.addEventListener('click', function(e) {
                     try {
-                        self.trackClick(e.target);
+                        var link = e.target.closest('a');
+                        if (link && self.linkPatterns.length) {
+                            self.trackLink(link);
+                        }
+                        if (self.clickPatterns.length) {
+                            self.trackClick(e.target);
+                        }
                     } catch (err) {
-                        self.error('Click tracking error:', err);
+                        self.error('Tracking error:', err);
                     }
                 });
-                self.log('Click tracking bound for', self.clickPatterns.length, 'pattern(s)');
+                self.log('Click tracking bound for',
+                    self.linkPatterns.length, 'link +',
+                    self.clickPatterns.length, 'selector pattern(s)');
             }
 
             // Form observation
@@ -237,11 +206,6 @@
         };
 
         self.init();
-    };
-
-    // Register with core - init() will call this
-    GTMToolkit._modules.EventTracker = function(config) {
-        return new GTMToolkit.EventTracker(config);
     };
 
 })();

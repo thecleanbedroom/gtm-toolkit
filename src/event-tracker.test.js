@@ -51,9 +51,9 @@ describe('GTMToolkit.EventTracker', function() {
       expect(window.GTMToolkit.version).toBe(pkg.version);
     });
 
-    test('initializes dataLayer on first send', function() {
-      var tracker = new window.GTMToolkit.EventTracker({});
-      tracker.send('init_test');
+    test('initializes dataLayer on first push', function() {
+      new window.GTMToolkit.EventTracker({});
+      window.GTMToolkit.push('init_test');
       expect(Array.isArray(window.dataLayer)).toBe(true);
     });
 
@@ -91,7 +91,7 @@ describe('GTMToolkit.EventTracker', function() {
 
       // Neither direct call should fire because links have no href
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry.event === 'click_phone';
+        return entry[0] === 'event' && entry[1] === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -176,20 +176,20 @@ describe('GTMToolkit.EventTracker', function() {
   // -----------------------------------------------------------------------
   // gtag / send
   // -----------------------------------------------------------------------
-  describe('send', function() {
-    test('pushes event to dataLayer via dataLayer.push', function() {
-      var tracker = new window.GTMToolkit.EventTracker({});
-      tracker.send('test_event', { foo: 'bar' });
+  describe('event transport', function() {
+    test('pushes event to dataLayer via gtag', function() {
+      new window.GTMToolkit.EventTracker({});
+      window.GTMToolkit.push('test_event', { foo: 'bar' });
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'test_event' && entry.foo === 'bar';
+        return entry[0] === 'event' && entry[1] === 'test_event' && entry[2] && entry[2].foo === 'bar';
       });
       expect(found).toBe(true);
     });
 
     test('returns true on success', function() {
-      var tracker = new window.GTMToolkit.EventTracker({});
-      expect(tracker.send('test_event')).toBe(true);
+      new window.GTMToolkit.EventTracker({});
+      expect(window.GTMToolkit.push('test_event')).toBe(true);
     });
   });
 
@@ -209,7 +209,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'click_phone';
+        return entry[0] === 'event' && entry[1] === 'click_phone';
       });
       expect(found).toBe(true);
     });
@@ -245,7 +245,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry.event === 'click_phone';
+        return entry[0] === 'event' && entry[1] === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -263,7 +263,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'click_phone';
+        return entry[0] === 'event' && entry[1] === 'click_phone';
       });
       expect(found).toBe(true);
     });
@@ -282,7 +282,7 @@ describe('GTMToolkit.EventTracker', function() {
       tracker.trackLink(link);
 
       var phoneEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry.event === 'click_phone';
+        return entry[0] === 'event' && entry[1] === 'click_phone';
       });
       expect(phoneEvents.length).toBe(0);
     });
@@ -320,7 +320,7 @@ describe('GTMToolkit.EventTracker', function() {
       btn.click();
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'click_chat';
+        return entry[0] === 'event' && entry[1] === 'click_chat';
       });
       expect(found).toBe(true);
       document.body.removeChild(btn);
@@ -342,7 +342,7 @@ describe('GTMToolkit.EventTracker', function() {
       span.click();
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'click_chat';
+        return entry[0] === 'event' && entry[1] === 'click_chat';
       });
       expect(found).toBe(true);
       document.body.removeChild(btn);
@@ -363,7 +363,7 @@ describe('GTMToolkit.EventTracker', function() {
       btn.click();
 
       var ctaEvents = window.dataLayer.slice(initialLength).filter(function(entry) {
-        return entry.event === 'click_cta';
+        return entry[0] === 'event' && entry[1] === 'click_cta';
       });
       expect(ctaEvents.length).toBe(0);
       document.body.removeChild(btn);
@@ -398,7 +398,7 @@ describe('GTMToolkit.EventTracker', function() {
       // MutationObserver is async - check on next tick
       setTimeout(function() {
         var found = window.dataLayer.some(function(entry) {
-          return entry.event === 'form_submit';
+          return entry[0] === 'event' && entry[1] === 'form_submit';
         });
         expect(found).toBe(true);
         document.body.removeChild(form);
@@ -438,13 +438,13 @@ describe('GTMToolkit.EventTracker', function() {
   // -----------------------------------------------------------------------
   // send error handling
   // -----------------------------------------------------------------------
-  describe('send error handling', function() {
-    test('returns false when dataLayer.push throws', function() {
-      var tracker = new window.GTMToolkit.EventTracker({});
-      window.dataLayer = { push: function() { throw new Error('push failure'); } };
+  describe('push error handling', function() {
+    test('returns false when gtag throws', function() {
+      new window.GTMToolkit.EventTracker({});
+      window.gtag = function() { throw new Error('gtag failure'); };
 
       var spy = jest.spyOn(console, 'error').mockImplementation(function() {});
-      var result = tracker.send('test_event');
+      var result = window.GTMToolkit.push('test_event');
       expect(result).toBe(false);
       spy.mockRestore();
     });

@@ -18,6 +18,7 @@ var originalLocation;
 
 beforeEach(function() {
   delete window.GTMToolkit;
+  delete window.gtag;
   delete window.dataLayer;
 
   // Restore location if it was overridden
@@ -124,16 +125,16 @@ describe('GTMToolkit.UserQualifier', function() {
   describe('dataLayer', function() {
     test('push creates dataLayer if missing', function() {
       delete window.dataLayer;
-      var q = new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false, gclid: false } });
-      q.push({ event: 'test' });
+      new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false, gclid: false } });
+      window.GTMToolkit.push('test');
       expect(Array.isArray(window.dataLayer)).toBe(true);
     });
 
-    test('push adds event to dataLayer', function() {
-      var q = new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false, gclid: false } });
-      q.push({ event: 'custom_event', value: 42 });
+    test('push adds event to dataLayer via gtag', function() {
+      new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false, gclid: false } });
+      window.GTMToolkit.push('custom_event', { value: 42 });
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'custom_event' && entry.value === 42;
+        return entry[0] === 'event' && entry[1] === 'custom_event';
       });
       expect(found).toBe(true);
     });
@@ -192,7 +193,7 @@ describe('GTMToolkit.UserQualifier', function() {
       new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, gclid: false } });
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'ga_user_include' && entry.value === 1;
+        return entry[0] === 'event' && entry[1] === 'ga_user_include';
       });
       expect(found).toBe(true);
     });
@@ -203,7 +204,7 @@ describe('GTMToolkit.UserQualifier', function() {
 
       var dl = window.dataLayer || [];
       var found = dl.some(function(entry) {
-        return entry.event === 'ga_user_include';
+        return entry[0] === 'event' && entry[1] === 'ga_user_include';
       });
       expect(found).toBe(false);
     });
@@ -216,7 +217,7 @@ describe('GTMToolkit.UserQualifier', function() {
     test('detects gclid in URL', function() {
       originalLocation = window.location;
       delete window.location;
-      window.location = { href: 'https://example.com/?gclid=abc123&utm_source=google' };
+      window.location = { href: 'https://example.com/?gclid=abc123&utm_source=google', search: '?gclid=abc123&utm_source=google' };
 
       var q = new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false } });
       expect(q.getCookie('ga_user_from_ad')).toBe('1');
@@ -238,7 +239,7 @@ describe('GTMToolkit.UserQualifier', function() {
       new window.GTMToolkit.UserQualifier({ checks: { hasJs: false, pageCount: false, include: false } });
 
       var found = window.dataLayer.some(function(entry) {
-        return entry.event === 'hasGclid' && entry.value === 1;
+        return entry[0] === 'event' && entry[1] === 'hasGclid';
       });
       expect(found).toBe(true);
     });

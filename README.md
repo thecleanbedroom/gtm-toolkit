@@ -147,6 +147,24 @@ Call these immediately after a rule registration method. They apply to the most 
 | **Array**  | `['goo.gl/maps', 'maps.google.com']` | True if any string matches via indexOf |
 | **RegExp** | `/example\.com\/pricing/i`           | `match.test(href)`                     |
 
+## Rule Priority
+
+Rules are checked in **registration order**. The first matching rule wins -- no other rules fire for that interaction. This applies to all rule types (links, selectors, forms).
+
+This means you can register specific rules first and a catch-all last:
+
+```js
+GTMToolkit
+  // Specific forms first
+  .onFormSubmit('.fluent_form_6', '.ff-message-success', 'form_contact')
+  .onFormSubmit('.fluent_form_10', '.ff-message-success', 'form_appointment')
+  // Catch-all last -- only fires if no specific rule matched
+  .onFormSubmit('.frm-fluent-form', '.ff-message-success', 'form_submission')
+  .start();
+```
+
+The same applies to link and selector rules. One click produces one event.
+
 ## Debug Mode
 
 Debug mode enables verbose console logging for all modules.

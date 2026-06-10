@@ -170,12 +170,13 @@
 
                                 if (match) {
                                     var form = match.closest(fp.formSelector);
-                                    var formId = form
-                                        ? (form.id || form.getAttribute('data-form_id') || 'unknown')
-                                        : 'unknown';
-                                    var formTransport = fp.transport || defaultTransport;
-                                    logger.log('Form success detected:', fp.formSelector, 'formId:', formId);
-                                    GTMToolkit.push(fp.event, { form_id: formId }, formTransport);
+                                    if (form) {
+                                        var formId = form.id || form.getAttribute('data-form_id') || 'unknown';
+                                        var formTransport = fp.transport || defaultTransport;
+                                        logger.log('Form success detected:', fp.formSelector, 'formId:', formId);
+                                        GTMToolkit.push(fp.event, { form_id: formId }, formTransport);
+                                        break; // first-match-wins: skip remaining form rules
+                                    }
                                 }
                             }
                         } catch (err) {

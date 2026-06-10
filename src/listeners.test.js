@@ -345,4 +345,110 @@ describe('GTMToolkit Listeners', function() {
             spy.mockRestore();
         });
     });
+
+    describe('First-match-wins', function() {
+        it('fires only the first matching link rule', function() {
+            GTMToolkit
+                .onLinkClick('maps.google.com', 'click_directions')
+                .onLinkClick('google.com', 'click_google')
+                .start();
+
+            var link = document.createElement('a');
+            link.href = 'https://maps.google.com/place';
+            document.body.appendChild(link);
+            simulateClick(link);
+
+            var directions = window.dataLayer.filter(function(e) { return e.event === 'click_directions'; });
+            var google = window.dataLayer.filter(function(e) { return e.event === 'click_google'; });
+            expect(directions.length).toBe(1);
+            expect(google.length).toBe(0);
+            document.body.removeChild(link);
+        });
+
+        it('fires only the first matching selector rule', function() {
+            GTMToolkit
+                .onSelectorClick('.chat-btn.promo', 'click_promo_chat')
+                .onSelectorClick('.chat-btn', 'click_chat')
+                .start();
+
+            var btn = document.createElement('button');
+            btn.className = 'chat-btn promo';
+            document.body.appendChild(btn);
+            simulateClick(btn);
+
+            var promo = window.dataLayer.filter(function(e) { return e.event === 'click_promo_chat'; });
+            var chat = window.dataLayer.filter(function(e) { return e.event === 'click_chat'; });
+            expect(promo.length).toBe(1);
+            expect(chat.length).toBe(0);
+            document.body.removeChild(btn);
+        });
+
+        it('fires catch-all selector when specific does not match', function() {
+            GTMToolkit
+                .onSelectorClick('.chat-btn.promo', 'click_promo_chat')
+                .onSelectorClick('.chat-btn', 'click_chat')
+                .start();
+
+            var btn = document.createElement('button');
+            btn.className = 'chat-btn';
+            document.body.appendChild(btn);
+            simulateClick(btn);
+
+            var promo = window.dataLayer.filter(function(e) { return e.event === 'click_promo_chat'; });
+            var chat = window.dataLayer.filter(function(e) { return e.event === 'click_chat'; });
+            expect(promo.length).toBe(0);
+            expect(chat.length).toBe(1);
+            document.body.removeChild(btn);
+        });
+
+        it('fires only the first matching form rule (catch-all skipped)', function(done) {
+            GTMToolkit
+                .onFormSubmit('.specific-form', '.success', 'form_specific')
+                .onFormSubmit('.generic-form', '.success', 'form_generic')
+                .start();
+
+            var form = document.createElement('div');
+            form.className = 'specific-form generic-form';
+            form.id = 'form-overlap';
+            document.body.appendChild(form);
+
+            var successEl = document.createElement('div');
+            successEl.className = 'success';
+            form.appendChild(successEl);
+
+            setTimeout(function() {
+                var specific = window.dataLayer.filter(function(e) { return e.event === 'form_specific'; });
+                var generic = window.dataLayer.filter(function(e) { return e.event === 'form_generic'; });
+                expect(specific.length).toBeGreaterThanOrEqual(1);
+                expect(generic.length).toBe(0);
+                document.body.removeChild(form);
+                done();
+            }, 50);
+        });
+
+        it('fires catch-all form rule when specific does not match', function(done) {
+            GTMToolkit
+                .onFormSubmit('.specific-form', '.success', 'form_specific')
+                .onFormSubmit('.generic-form', '.success', 'form_generic')
+                .start();
+
+            var form = document.createElement('div');
+            form.className = 'generic-form';
+            form.id = 'form-catchall';
+            document.body.appendChild(form);
+
+            var successEl = document.createElement('div');
+            successEl.className = 'success';
+            form.appendChild(successEl);
+
+            setTimeout(function() {
+                var specific = window.dataLayer.filter(function(e) { return e.event === 'form_specific'; });
+                var generic = window.dataLayer.filter(function(e) { return e.event === 'form_generic'; });
+                expect(specific.length).toBe(0);
+                expect(generic.length).toBeGreaterThanOrEqual(1);
+                document.body.removeChild(form);
+                done();
+            }, 50);
+        });
+    });
 });

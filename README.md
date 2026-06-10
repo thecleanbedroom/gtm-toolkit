@@ -1,209 +1,308 @@
 # GTM Toolkit
 
-Configurable event tracking and user qualification for GA4/GTM. Drop-in JavaScript library that fires `gtag` events from link clicks, CSS selector matches, form submissions, and cookie-based user signals -- all via a single `GTMToolkit.init()` call.
+Configurable event tracking and user signals for GA4/GTM. Drop-in JavaScript library that fires events from link clicks, CSS selector matches, form submissions, and cookie-based user context -- all via a fluent builder API.
+
+**~9 KB minified. Zero dependencies. ES5-compatible.**
 
 ## Quick Start
 
-Load the minified bundle from jsDelivr and initialize:
+Load the minified bundle from jsDelivr and configure with the fluent API:
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js"></script>
 <script>
-  GTMToolkit.init({
-    debug: true,
-    eventTracker: {
-      linkPatterns: [
-        { pattern: /^tel:/i, event: 'click_phone', mobileOnly: true },
-        { pattern: /^mailto:/i, event: 'click_email' },
-        { pattern: /(goo\.gl\/maps|google\.com\/maps|maps\.google\.com|maps\.app\.goo\.gl)/i, event: 'click_directions', newTab: true }
-      ],
-      clickPatterns: [
-        { selector: '.chat-open-link', event: 'click_chat' }
-      ],
-      formPatterns: [
-        { formSelector: '.frm-fluent-form', successSelector: '.ff-message-success', event: 'form_submit' }
-      ]
-    },
-    userQualifier: {
-      cookieExpiry: 30,
-      checks: {
-        hasJs: true,
-        pageCount: true,
-        include: true,
-        gclid: true
-      }
-    }
-  });
+  GTMToolkit
+    .onLinkClick('tel:', 'click_phone').onlyMobile()
+    .onLinkClick('mailto:', 'click_email')
+    .onLinkClick(/(goo\.gl\/maps|maps\.google\.com)/i, 'click_directions').newTab()
+    .onSelectorClick('.chat-open-link', 'click_chat')
+    .onFormSubmit('.frm-fluent-form', '.ff-message-success', 'form_submit')
+    .start();
 </script>
 ```
 
-Place this in a **GTM Custom HTML tag** triggered on **DOM Ready** (`gtm.dom`), or before `</body>` in your site's HTML. The toolkit requires `document.body` to exist (for click listeners and MutationObserver), so the Page View trigger (`gtm.js`) is too early.
+Place this in a **GTM Custom HTML tag** triggered on **DOM Ready** (`gtm.dom`), or before `</body>` in your site's HTML.
+
+> The toolkit requires `document.body` to exist (for click listeners and MutationObserver), so the Page View trigger (`gtm.js`) is too early.
+
+## How It Works
+
+On `.start()`, the toolkit activates three modules in order:
+
+1. **Listeners** register event handlers but fire nothing until the user interacts:
+   - **Link rules** delegate a single click handler on `document`, match `<a>` hrefs against your patterns, and push the event on first match.
+   - **Selector rules** use `Element.closest()` to walk up from clicked child elements to find a matching ancestor.
+   - **Form rules** start a `MutationObserver` on `document.body`, watching for a success element to appear inside the form container. Works with Fluent Forms, WPForms, Gravity Forms, and any AJAX form that injects a success element.
+
+2. **Signals** run all cookie-based context checks immediately:
+   - **hasJs** -- Sets a `ga_user_has_js` cookie. Visitors without JavaScript (bots, crawlers) never get this cookie.
+   - **pageCount** -- Increments a `ga_user_page_views` cookie on every page load.
+   - **include** -- Pushes a `ga_user_include` event for returning visitors (page views > 1).
+   - **gclid** -- Detects `?gclid=` in the URL (Google Ads click ID), persists it in a cookie, and pushes a `hasGclid` event on return visits.
+
+3. **Test Panel** renders a floating bar with clickable test elements for every registered rule, but only when [Tag Assistant](https://tagassistant.google.com/) is active.
 
 ## Complete Configuration
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js"></script>
 <script>
-  GTMToolkit.init({
+  GTMToolkit
 
-    // Global: verbose console logging for all modules
-    debug: false,
+    // -- Global settings -------------------------------------------
+    .toGTMDefault()           // Default transport: dataLayer.push (default)
+    // .toGADefault()         // Or: default transport: gtag('event', ...)
+    .cookieExpiry(30)         // Cookie lifetime in days (default: 30)
+    .debug(true)              // Force debug logging on (default: auto-detect)
 
-    // ---------------------------------------------------------------
-    // EventTracker
-    // Binds delegated listeners on document for clicks and a
-    // MutationObserver for form submissions. No events fire until
-    // a user actually interacts.
-    // ---------------------------------------------------------------
-    eventTracker: {
+    // -- Link click rules ------------------------------------------
+    // Match <a> href against string, array of strings, or RegExp
 
-      // Link patterns: match <a> clicks by href regex
-      linkPatterns: [
-        // Track phone link taps, only on mobile devices
-        { pattern: /^tel:/i, event: 'click_phone', mobileOnly: true },
-        // Track email link clicks
-        { pattern: /^mailto:/i, event: 'click_email' },
-        // Track Google Maps links and force them to open in a new tab
-        { pattern: /(goo\.gl\/maps|google\.com\/maps|maps\.app\.goo\.gl)/i, event: 'click_directions', newTab: true }
-      ],
+    // Track phone taps, mobile only
+    .onLinkClick('tel:', 'click_phone').onlyMobile()
 
-      // Click patterns: match any click by CSS selector (uses Element.closest,
-      // so clicks on child elements bubble up to the matched parent)
-      clickPatterns: [
-        { selector: '.chat-open-link', event: 'click_chat' },
-        { selector: '.mobile-cta', event: 'click_cta', mobileOnly: true }
-      ],
+    // Track email clicks
+    .onLinkClick('mailto:', 'click_email')
 
-      // Form patterns: detect AJAX form submissions by watching for a
-      // success element inserted into the DOM inside a form container.
-      // Works with Fluent Forms, WPForms, Gravity Forms, etc.
-      formPatterns: [
-        {
-          formSelector: '.frm-fluent-form',
-          successSelector: '.ff-message-success',
-          event: 'form_submit'
-        }
-      ],
+    // Track Google Maps links, force new tab
+    .onLinkClick(
+      ['goo.gl/maps', 'maps.google.com', 'maps.app.goo.gl'],
+      'click_directions'
+    ).newTab()
 
-      // Optional: override the built-in device detector.
-      // Must return 'mobile', 'tablet', or 'desktop'.
-      // If UAParser.js is loaded on the page, it is used automatically.
-      // deviceDetector: function() { return 'mobile'; }
-    },
+    // Track with RegExp
+    .onLinkClick(/example\.com\/pricing/i, 'click_pricing')
 
-    // ---------------------------------------------------------------
-    // UserQualifier
-    // Sets cookies and pushes dataLayer events on every page load
-    // to build GA4 audience segments.
-    // ---------------------------------------------------------------
-    userQualifier: {
-      // Cookie lifetime in days
-      cookieExpiry: 30,
+    // Override transport for a specific rule
+    .onLinkClick('tel:', 'click_phone_ga').toGA()
 
-      // Toggle individual checks (all default to true)
-      checks: {
-        hasJs: true,        // Sets ga_user_has_js=1 cookie (proves JS ran, filters bots)
-        pageCount: true,    // Increments ga_user_page_views cookie (session depth)
-        include: true,      // Pushes ga_user_include dataLayer event for returning visitors
-        gclid: true         // Detects ?gclid= in URL, sets ga_user_from_ad cookie, pushes hasGclid event
-      }
+    // -- Selector click rules --------------------------------------
+    // Match any click by CSS selector (uses Element.closest)
 
-      // Optional: override default cookie names
-      // keys: {
-      //   pageViews: 'my_page_views',
-      //   hasJs: 'my_has_js',
-      //   include: 'my_include',
-      //   gclid: 'my_from_ad'
-      // }
-    }
-  });
+    .onSelectorClick('.chat-open-link', 'click_chat')
+    .onSelectorClick('.mobile-cta', 'click_cta').onlyMobile()
+
+    // -- Form submission rules -------------------------------------
+    // Detect AJAX form submissions via MutationObserver
+
+    .onFormSubmit('.frm-fluent-form', '.ff-message-success', 'form_submit')
+    .onFormSubmit('#gform_1', '.gform_confirmation_message', 'gravity_form_submit')
+
+    // -- Start -----------------------------------------------------
+    .start();
 </script>
 ```
 
-### How It Works
+## API Reference
 
-On page load, `GTMToolkit.init()` activates each module in order:
+### Global Settings
 
-**EventTracker** registers listeners but does not fire any events until the user interacts:
-- **Link patterns** listen for `<a>` clicks, match the `href` against each regex, and call `gtag('event', ...)` on the first match.
-- **Click patterns** listen for clicks anywhere on the page, walk up the DOM with `closest()` to find a matching selector.
-- **Form patterns** start a `MutationObserver` on `document.body`, watching for a success element to appear inside the form container.
-- **mobileOnly** skips the event if the device is not mobile. Detection uses a custom `deviceDetector` function if provided, then [UAParser.js](https://github.com/nicedayfor/ua-parser-js) if loaded, then a built-in regex + touch fallback.
+Every method returns `GTMToolkit` for chaining.
 
-**UserQualifier** runs all enabled checks immediately:
-- **hasJs** sets a `ga_user_has_js` cookie to `1`. Visitors without JavaScript (bots, crawlers) never get this cookie.
-- **pageCount** reads the current `ga_user_page_views` cookie, increments it, and writes it back. Tracks how deep into the session a user is.
-- **include** checks if the user has visited before (page views > 0) and pushes a `ga_user_include` dataLayer event. Useful for GA4 audience segments that exclude first-time visitors.
-- **gclid** scans the URL for a `gclid` parameter (Google Ads click ID), sets a `ga_user_from_ad` cookie, and pushes a `hasGclid` dataLayer event. The cookie persists across pages so the ad attribution survives navigation.
+| Method | Description | Default |
+|--------|-------------|---------|
+| `.toGTMDefault()` | Set default transport to `dataLayer.push` | `dataLayer` |
+| `.toGADefault()` | Set default transport to `gtag('event', ...)` | -- |
+| `.cookieExpiry(days)` | Set cookie lifetime in days for signals | `30` |
+| `.debug(bool)` | Force debug mode on or off | Auto-detect |
+| `.start()` | Initialize the toolkit. Idempotent. | -- |
 
-All cookies use `Secure` and `SameSite=Lax` attributes.
+### Rule Registration
 
-### Config Reference
+| Method | Arguments | Description |
+|--------|-----------|-------------|
+| `.onLinkClick(match, event)` | `match`: `string`, `string[]`, or `RegExp`; `event`: event name | Push event when a clicked `<a>` href matches |
+| `.onSelectorClick(selector, event)` | `selector`: CSS selector; `event`: event name | Push event when a clicked element matches |
+| `.onFormSubmit(formSelector, successSelector, event)` | `formSelector`, `successSelector`: CSS selectors; `event`: event name | Push event when success element appears inside form |
 
-#### `eventTracker.linkPatterns[]`
+### Per-Rule Modifiers
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `pattern` | `RegExp` | Yes | Regex matched against the link's `href`. |
-| `event` | `string` | Yes | The `gtag` event name to fire. |
-| `mobileOnly` | `boolean` | No | Only fire on mobile devices. |
-| `newTab` | `boolean` | No | Force the link to open in a new tab. |
+Call these immediately after a rule registration method. They apply to the most recently registered rule.
 
-#### `eventTracker.clickPatterns[]`
+| Method | Description |
+|--------|-------------|
+| `.onlyMobile()` | Only fire on mobile devices (not tablets, not desktop) |
+| `.newTab()` | Force matched links to open in a new tab (`target="_blank"`) |
+| `.toGA()` | Override this rule's transport to `gtag` |
+| `.toGTM()` | Override this rule's transport to `dataLayer` |
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `selector` | `string` | Yes | CSS selector to match clicked elements. |
-| `event` | `string` | Yes | The `gtag` event name to fire. |
-| `mobileOnly` | `boolean` | No | Only fire on mobile devices. |
+### Link Matching
 
-#### `eventTracker.formPatterns[]`
+`.onLinkClick()` supports three match types:
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `formSelector` | `string` | Yes | CSS selector for the form container. |
-| `successSelector` | `string` | Yes | CSS selector for the success element that appears on submission. |
-| `event` | `string` | Yes | The `gtag` event name to fire. |
+| Type | Example | Behavior |
+|------|---------|----------|
+| **String** | `'tel:'` | `href.indexOf(match) !== -1` |
+| **Array** | `['goo.gl/maps', 'maps.google.com']` | True if any string matches via indexOf |
+| **RegExp** | `/example\.com\/pricing/i` | `match.test(href)` |
 
-#### `userQualifier`
+## Debug Mode
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `cookieExpiry` | `number` | `30` | Cookie lifetime in days. |
-| `checks.hasJs` | `boolean` | `true` | Set a `ga_user_has_js` cookie. |
-| `checks.pageCount` | `boolean` | `true` | Increment a `ga_user_page_views` cookie. |
-| `checks.include` | `boolean` | `true` | Push `ga_user_include` event for returning visitors. |
-| `checks.gclid` | `boolean` | `true` | Detect `gclid` in URL, set `ga_user_from_ad` cookie. |
+Debug mode enables verbose console logging for all modules.
+
+**Auto-detection** (when `.debug()` is not called): debug mode activates automatically if any of these are true:
+- Google Tag Assistant is running (`window.__TAG_ASSISTANT_API` exists)
+- URL contains `?gtm_debug` parameter
+- A `gtm_debug` cookie is set
+
+**Explicit override**: Call `.debug(true)` or `.debug(false)` to force debug mode regardless of auto-detection.
+
+**Test Panel**: When debug mode is active *and* Tag Assistant is running, a floating bar appears at the bottom of the page with clickable test elements for every registered rule:
+- Link rules get a sample `<a>` element with the correct href
+- Selector rules get a `<button>` with the matching class
+- Form rules get a "simulate" button that injects a success element
+
+## Signals
+
+Signals run automatically on `.start()` and push cookie-based user context into the dataLayer. All cookies use `Secure` and `SameSite=Lax` attributes.
+
+### Cookies Set
+
+| Cookie | Value | Lifetime | Purpose |
+|--------|-------|----------|---------|
+| `ga_user_has_js` | `1` | 365 days | Proves JavaScript ran (filters bots/crawlers) |
+| `ga_user_page_views` | Incrementing count | Configurable (default 30 days) | Session depth tracking |
+| `ga_user_include` | `1` | 1 day | Marks returning visitors |
+| `ga_user_from_ad` | `0` or `1` | Configurable (default 30 days) | Persists Google Ads click attribution |
+
+### Events Pushed
+
+| Event | Condition | Parameters |
+|-------|-----------|------------|
+| `ga_user_include` | Page views > 1 (returning visitor) | `{ value: 1 }` |
+| `hasGclid` | `ga_user_from_ad` cookie is `1` (return visit after ad click) | `{ value: 1 }` |
+
+## Device Detection
+
+The `.onlyMobile()` modifier uses a two-tier detection strategy:
+
+1. **UAParser** -- If [UAParser.js](https://github.com/nicedayfor/ua-parser-js) is loaded on the page, its device type is used automatically
+2. **Built-in regex** -- Lightweight regex against `navigator.userAgent` for mobile and tablet detection
+
+Mobile means phone only. Tablets and desktops are excluded.
+
+## Transport
+
+The toolkit supports two transport mechanisms:
+
+| Transport | Push method | When to use |
+|-----------|-------------|-------------|
+| `dataLayer` (default) | `window.dataLayer.push({ event: name, ...params })` | GTM-managed sites |
+| `gtag` | `window.gtag('event', name, params)` | Direct GA4 measurement |
+
+Set the global default with `.toGTMDefault()` or `.toGADefault()`. Override per-rule with `.toGA()` or `.toGTM()`.
+
+If `window.dataLayer` or `window.gtag` don't exist when a push happens, the toolkit creates them automatically.
 
 ## Development
 
-Requires Node.js. All tasks run through Make:
+Requires Node.js 18+. All tasks run through Make:
 
 ```bash
-make install        # Install dependencies
-make update         # Update packages to latest compatible versions
-make test           # Lint + run test suite
-make build          # Build dist/gtm-toolkit.js and dist/gtm-toolkit.min.js
-make ci             # Full CI pipeline: install, test, build
-make clean          # Remove dist/ and node_modules/
-make help           # Show all available commands
+make install          # Install dependencies + git hooks
+make test             # Lint + run test suite (91 tests)
+make test-coverage    # Lint + tests with coverage report
+make test-watch       # Run tests in watch mode
+make build            # Build dist/gtm-toolkit.js and dist/gtm-toolkit.min.js
+make ci               # Full CI pipeline: install, test, build
+make clean            # Remove dist/ and node_modules/
+make help             # Show all available commands
 ```
 
 ### Project Structure
 
 ```
 src/
-  _core.js              # Namespace, version, debug, logger factory, init()
-  event-tracker.js      # Link, click, and form tracking module
-  event-tracker.test.js # EventTracker test suite
-  user-qualifier.js     # Cookie-based user qualification module
-  user-qualifier.test.js# UserQualifier test suite
+  core.js               # Fluent builder API, transport, orchestration
+  core.test.js           # 34 tests
+  listeners.js           # Link, selector, and form event binding
+  listeners.test.js      # 23 tests
+  signals.js             # Cookie-based user context signals
+  signals.test.js        # 17 tests
+  test-panel.js          # Floating debug panel (Tag Assistant only)
+  test-panel.test.js     # 12 tests
 scripts/
-  build.js              # Concatenates src/*.js into dist/ bundle
+  build.js               # Concatenates src/ modules into dist/ bundle
 dist/
-  gtm-toolkit.js        # Full bundle (unminified)
-  gtm-toolkit.min.js    # Minified bundle for production
+  gtm-toolkit.js         # Full bundle (unminified, ~28 KB)
+  gtm-toolkit.min.js     # Minified bundle (~9 KB)
 ```
+
+### Architecture
+
+The toolkit is built as four independent IIFEs that share state through `window.GTMToolkit`:
+
+```
+core.js ──────> listeners.js    (core._bindListeners)
+          ├──> signals.js       (core._runSignals)
+          └──> test-panel.js    (core._renderTestPanel)
+```
+
+**Build order matters**: `core.js` must load first. The build script (`scripts/build.js`) concatenates modules in explicit order, then minifies with Terser.
+
+Each module attaches a private method to `GTMToolkit` (e.g., `_bindListeners`) that `core.js` calls during `.start()`. Modules are optional -- if `signals.js` is not loaded, `.start()` skips the signals phase.
+
+### Testing
+
+Tests use Jest with jsdom. Source files are loaded via `require()` so Jest can instrument them for coverage.
+
+```bash
+make test               # Lint + tests
+make test-coverage      # With coverage report
+make test-verbose       # With per-test output
+```
+
+Coverage (as of v2.0.0):
+
+| File | Statements | Branches | Functions | Lines |
+|------|-----------|----------|-----------|-------|
+| signals.js | 100% | 100% | 100% | 100% |
+| test-panel.js | 100% | 90.9% | 100% | 100% |
+| core.js | 98.4% | 80.8% | 100% | 98.3% |
+| listeners.js | 96.1% | 86.4% | 100% | 96.7% |
+| **Overall** | **98.2%** | **87%** | **100%** | **98.4%** |
+
+## Migration from v1
+
+v2.0.0 replaces the config-object API (`GTMToolkit.init({...})`) with a fluent builder:
+
+```diff
+- GTMToolkit.init({
+-   debug: true,
+-   eventTracker: {
+-     linkPatterns: [
+-       { pattern: /^tel:/i, event: 'click_phone', mobileOnly: true }
+-     ],
+-     clickPatterns: [
+-       { selector: '.chat-btn', event: 'click_chat' }
+-     ],
+-     formPatterns: [
+-       { formSelector: '.gform', successSelector: '.success', event: 'form_done' }
+-     ]
+-   },
+-   userQualifier: {
+-     cookieExpiry: 30
+-   }
+- });
+
++ GTMToolkit
++   .debug(true)
++   .cookieExpiry(30)
++   .onLinkClick(/^tel:/i, 'click_phone').onlyMobile()
++   .onSelectorClick('.chat-btn', 'click_chat')
++   .onFormSubmit('.gform', '.success', 'form_done')
++   .start();
+```
+
+### Breaking Changes
+
+- `GTMToolkit.init()` no longer exists. Use the fluent API + `.start()`.
+- `eventTracker.linkPatterns[].pattern` is now the first argument to `.onLinkClick()`.
+- `eventTracker.clickPatterns` is now `.onSelectorClick()`.
+- `eventTracker.formPatterns` is now `.onFormSubmit()`.
+- `userQualifier.checks` are no longer individually togglable. All signals always run.
+- `eventTracker.deviceDetector` (custom function) is removed. UAParser + built-in regex remain.
+- Link matching now supports strings and string arrays in addition to RegExp.
 
 ## License
 

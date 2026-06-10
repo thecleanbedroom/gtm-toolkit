@@ -1,8 +1,8 @@
 /**
- * GTM Toolkit v1.3.0 - Bundle
+ * GTM Toolkit v2.0.0 - Bundle
  * Configurable event tracking and user qualification for GA4/GTM
- * Modules: _core, event-tracker, user-qualifier
- * Built: 2026-06-10T12:47:39.238Z
+ * Modules: core, listeners, signals, test-panel
+ * Built: 2026-06-10T17:18:15.835Z
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  *
@@ -10,9 +10,8 @@
  */
 /**
  * GTM Toolkit - Core
- * @description Namespace initialization, version, and shared utilities.
- *              Must load before all other modules (underscore prefix ensures
- *              alphabetical sort order in the build concatenation).
+ * @description Fluent builder API, transport abstraction, and orchestration.
+ *              Must load before all other modules.
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  */
@@ -21,18 +20,33 @@
 
     var GTMToolkit = window.GTMToolkit || {};
 
-    GTMToolkit.version = '1.3.0';
-    GTMToolkit.debug = false;
+    GTMToolkit.version = '2.0.0';
+
+    // -------------------------------------------------------------------
+    // Private state (not accessible outside this IIFE)
+    // -------------------------------------------------------------------
+    var _defaultTransport = 'dataLayer';
+    var _cookieExpiry = 30;
+    var _debug = false;
+    var _debugExplicit = false;   // true if .debug() was called explicitly
+    var _rules = [];
+    var _lastRule = null;
+    var _started = false;
+    var _cleanupFn = null;        // returned by _bindListeners for teardown
+
+    // -------------------------------------------------------------------
+    // Logger factory
+    // -------------------------------------------------------------------
 
     /**
-     * Creates a prefixed logger. Debug output controlled by GTMToolkit.debug.
-     * @param {string} prefix - Log prefix, e.g. '[GTMToolkit.EventTracker]'.
+     * Creates a prefixed logger. Output controlled by debug state.
+     * @param {string} prefix - Log prefix, e.g. '[GTMToolkit]'.
      * @returns {{ log: Function, error: Function }}
      */
     GTMToolkit.createLogger = function(prefix) {
         return {
             log: function() {
-                if (GTMToolkit.debug) {
+                if (_debug) {
                     console.log.apply(console, [prefix].concat(Array.prototype.slice.call(arguments)));
                 }
             },
@@ -42,184 +56,281 @@
         };
     };
 
-    /**
-     * Ensures window.gtag exists. Creates a dataLayer shim if gtag.js
-     * hasn't loaded yet - queued events are processed once it does.
-     */
-    GTMToolkit._ensureTransport = function() {
+    // -------------------------------------------------------------------
+    // Transport
+    // -------------------------------------------------------------------
+
+    function _ensureDataLayer() {
+        window.dataLayer = window.dataLayer || [];
+    }
+
+    function _ensureGtag() {
+        _ensureDataLayer();
         if (typeof window.gtag !== 'function') {
-            window.dataLayer = window.dataLayer || [];
             window.gtag = function() {
                 window.dataLayer.push(arguments);
             };
         }
-    };
+    }
 
     /**
-     * Central event transport. All modules use this to push events.
-     * Currently sends via gtag() which goes directly to GA4.
+     * Central event transport. Pushes via dataLayer or gtag.
      * @param {string} eventName - The event name.
      * @param {Object} [params={}] - Additional event parameters.
+     * @param {string} [transport] - Override transport ('dataLayer' or 'gtag').
+     *                               Falls back to _defaultTransport.
      * @returns {boolean} True if push succeeded.
      */
-    GTMToolkit.push = function(eventName, params, source) {
-        GTMToolkit._ensureTransport();
+    GTMToolkit.push = function(eventName, params, transport) {
+        var resolvedTransport = transport || _defaultTransport;
+        params = params || {};
+
         try {
-            window.gtag('event', eventName, params || {});
-            if (source) {
-                var successLogger = GTMToolkit.createLogger(source);
-                successLogger.log('Push:', eventName, params || {});
+            if (resolvedTransport === 'gtag') {
+                _ensureGtag();
+                window.gtag('event', eventName, params);
+            } else {
+                _ensureDataLayer();
+                var payload = { event: eventName };
+                for (var k in params) {
+                    if (params.hasOwnProperty(k)) {
+                        payload[k] = params[k];
+                    }
+                }
+                window.dataLayer.push(payload);
             }
+
+            if (_debug) {
+                var logger = GTMToolkit.createLogger('[GTMToolkit]');
+                logger.log('Push (' + resolvedTransport + '):', eventName, params);
+            }
+
             return true;
         } catch (e) {
-            var errorLogger = GTMToolkit.createLogger(source || '[GTMToolkit]');
+            var errorLogger = GTMToolkit.createLogger('[GTMToolkit]');
             errorLogger.error('Failed to push:', eventName, e);
             return false;
         }
     };
 
-
+    // -------------------------------------------------------------------
+    // Fluent API - Global configuration
+    // -------------------------------------------------------------------
 
     /**
-     * Initialize the toolkit. Single entry point for all configuration.
-     * @param {Object}  config
-     * @param {boolean} [config.debug=false]          - Enable verbose console logging.
-     * @param {Object}  [config.eventTracker]         - EventTracker module config.
-     * @param {Object}  [config.userQualifier]        - UserQualifier module config.
+     * Set default transport to GTM (dataLayer.push).
+     * @returns {Object} GTMToolkit for chaining.
      */
-    GTMToolkit.init = function(config) {
-        config = config || {};
+    GTMToolkit.toGTMDefault = function() {
+        _defaultTransport = 'dataLayer';
+        return GTMToolkit;
+    };
 
-        if (GTMToolkit._initialized) {
-            console.warn('[GTMToolkit] init() called again, ignoring. Toolkit already initialized.');
+    /**
+     * Set default transport to GA (gtag).
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.toGADefault = function() {
+        _defaultTransport = 'gtag';
+        return GTMToolkit;
+    };
+
+    /**
+     * Set cookie expiry in days for signals.
+     * @param {number} days - Cookie expiry in days.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.cookieExpiry = function(days) {
+        _cookieExpiry = days;
+        return GTMToolkit;
+    };
+
+    /**
+     * Explicitly enable or disable debug mode.
+     * @param {boolean} val - true to enable, false to disable.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.debug = function(val) {
+        _debug = !!val;
+        _debugExplicit = true;
+        return GTMToolkit;
+    };
+
+    // -------------------------------------------------------------------
+    // Fluent API - Rule registration
+    // -------------------------------------------------------------------
+
+    function _addRule(type, config) {
+        var rule = { type: type, transport: null, mobileOnly: false, newTab: false };
+        for (var k in config) {
+            if (config.hasOwnProperty(k)) {
+                rule[k] = config[k];
+            }
+        }
+        _rules.push(rule);
+        _lastRule = rule;
+        return GTMToolkit;
+    }
+
+    /**
+     * Register a link click event. Fires when a clicked <a> href matches.
+     * @param {string|Array|RegExp} match - String (indexOf), array of strings, or RegExp.
+     * @param {string} event - Event name to push.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.onLinkClick = function(match, event) {
+        return _addRule('link', { match: match, event: event });
+    };
+
+    /**
+     * Register a selector click event. Fires when a clicked element matches the CSS selector.
+     * @param {string} selector - CSS selector.
+     * @param {string} event - Event name to push.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.onSelectorClick = function(selector, event) {
+        return _addRule('selector', { selector: selector, event: event });
+    };
+
+    /**
+     * Register a form submit event. Fires when a success element appears inside the form.
+     * @param {string} formSelector - CSS selector for the form container.
+     * @param {string} successSelector - CSS selector for the success element.
+     * @param {string} event - Event name to push.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.onFormSubmit = function(formSelector, successSelector, event) {
+        return _addRule('form', {
+            formSelector: formSelector,
+            successSelector: successSelector,
+            event: event
+        });
+    };
+
+    // -------------------------------------------------------------------
+    // Fluent API - Per-rule modifiers (operate on _lastRule)
+    // -------------------------------------------------------------------
+
+    /**
+     * Restrict the last registered rule to mobile devices only.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.onlyMobile = function() {
+        if (_lastRule) { _lastRule.mobileOnly = true; }
+        return GTMToolkit;
+    };
+
+    /**
+     * Force matched links to open in a new tab.
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.newTab = function() {
+        if (_lastRule) { _lastRule.newTab = true; }
+        return GTMToolkit;
+    };
+
+    /**
+     * Override transport for the last registered rule to GA (gtag).
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.toGA = function() {
+        if (_lastRule) { _lastRule.transport = 'gtag'; }
+        return GTMToolkit;
+    };
+
+    /**
+     * Override transport for the last registered rule to GTM (dataLayer).
+     * @returns {Object} GTMToolkit for chaining.
+     */
+    GTMToolkit.toGTM = function() {
+        if (_lastRule) { _lastRule.transport = 'dataLayer'; }
+        return GTMToolkit;
+    };
+
+    // -------------------------------------------------------------------
+    // Start
+    // -------------------------------------------------------------------
+
+    /**
+     * Initialize the toolkit. Binds listeners, runs signals, renders test panel.
+     * Idempotent - calling again is a no-op with a warning.
+     */
+    GTMToolkit.start = function() {
+        if (_started) {
+            console.warn('[GTMToolkit] start() called again, ignoring.');
             return;
         }
-        GTMToolkit._initialized = true;
+        _started = true;
 
-        if (config.debug) { GTMToolkit.debug = true; }
+        // Auto-detect debug if not explicitly set
+        if (!_debugExplicit) {
+            var isTagAssistant = !!window.__TAG_ASSISTANT_API;
+            var hasDebugParam = window.location.search.indexOf('gtm_debug') !== -1;
+            var hasDebugCookie = /(?:^|;\s*)gtm_debug=/.test(document.cookie);
 
-        // Auto-enable debug when Tag Assistant or gtm_debug is detected
-        var isTagAssistant = !!window.__TAG_ASSISTANT_API ||
-            window.location.search.indexOf('gtm_debug') !== -1 ||
-            document.cookie.indexOf('gtm_debug') !== -1;
-        if (!GTMToolkit.debug && isTagAssistant) {
-            GTMToolkit.debug = true;
+            if (isTagAssistant || hasDebugParam || hasDebugCookie) {
+                _debug = true;
+            }
         }
 
         var logger = GTMToolkit.createLogger('[GTMToolkit]');
 
-        // Collect registered event names from config for GTM trigger matching
-        var events = [];
-        if (config.eventTracker) {
-            var et = config.eventTracker;
-            (et.linkPatterns || []).forEach(function(p) { events.push(p.event); });
-            (et.clickPatterns || []).forEach(function(p) { events.push(p.event); });
-            (et.formPatterns || []).forEach(function(p) { events.push(p.event); });
+        // Bind DOM listeners (from listeners.js)
+        if (typeof GTMToolkit._bindListeners === 'function') {
+            _cleanupFn = GTMToolkit._bindListeners(_rules, _defaultTransport) || null;
         }
-        if (config.userQualifier) {
-            var checks = config.userQualifier.checks || {};
-            if (checks.include !== false) { events.push('ga_user_include'); }
-            if (checks.gclid !== false) { events.push('hasGclid'); }
+
+        // Run user signals (from signals.js)
+        if (typeof GTMToolkit._runSignals === 'function') {
+            GTMToolkit._runSignals(_cookieExpiry, _defaultTransport);
         }
+
+        // Render test panel when Tag Assistant is active (from test-panel.js)
+        if (_debug && !!window.__TAG_ASSISTANT_API && typeof GTMToolkit._renderTestPanel === 'function') {
+            GTMToolkit._renderTestPanel(_rules);
+        }
+
+        // Collect event names for reference
+        var events = _rules.map(function(r) { return r.event; });
         GTMToolkit.registeredEvents = events;
 
-        if (config.eventTracker && GTMToolkit.EventTracker) {
-            new GTMToolkit.EventTracker(config.eventTracker);
-            logger.log('EventTracker initialized');
-        }
-
-        if (config.userQualifier && GTMToolkit.UserQualifier) {
-            new GTMToolkit.UserQualifier(config.userQualifier);
-            logger.log('UserQualifier initialized');
-        }
-
-        logger.log('Registered events:', events.join(', '));
         logger.log('v' + GTMToolkit.version, 'ready');
-
-        // Render test panel when Tag Assistant is active
-        if (GTMToolkit.debug && isTagAssistant) {
-            _renderTestPanel(config);
+        logger.log('Rules:', _rules.length, '| Transport:', _defaultTransport);
+        if (events.length) {
+            logger.log('Events:', events.join(', '));
         }
     };
 
-    /**
-     * Renders a floating test panel with clickable elements matching the
-     * user's configured patterns. Only shown during Tag Assistant preview.
-     * @private
-     */
-    function _renderTestPanel(config) {
-        var et = config.eventTracker || {};
-        var links = [];
-        var btnStyle = 'color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:13px;border:none;cursor:pointer;display:inline-block;';
+    // -------------------------------------------------------------------
+    // Internal getters (for other modules, not public API)
+    // -------------------------------------------------------------------
+    GTMToolkit._getDebug = function() { return _debug; };
+    GTMToolkit._getCookieExpiry = function() { return _cookieExpiry; };
+    GTMToolkit._getDefaultTransport = function() { return _defaultTransport; };
+    GTMToolkit._getRules = function() { return _rules; };
 
-        // Generate sample links from linkPatterns
-        (et.linkPatterns || []).forEach(function(p) {
-            var src = p.pattern.source || '';
-            var href = 'https://example.com/test';
-            var icon = '🔗';
-            if (/tel/i.test(src)) { href = 'tel:+15551234567'; icon = '📞'; }
-            else if (/mailto/i.test(src)) { href = 'mailto:test@example.com'; icon = '📧'; }
-            else if (/maps/i.test(src)) { href = 'https://maps.google.com/maps?q=test'; icon = '📍'; }
-            var a = document.createElement('a');
-            a.href = href;
-            a.setAttribute('style', btnStyle + 'background:#2ecc71;');
-            a.textContent = icon + ' ' + p.event + (p.mobileOnly ? ' (mobile)' : '');
-            links.push(a);
-        });
-
-        // Generate buttons from clickPatterns
-        (et.clickPatterns || []).forEach(function(p) {
-            var btn = document.createElement('button');
-            // Strip CSS selector prefixes (., #) to get a usable class name
-            btn.className = p.selector.replace(/^[.#]/, '');
-            btn.setAttribute('style', btnStyle + 'background:#9b59b6;');
-            btn.textContent = '💬 ' + p.event;
-            links.push(btn);
-        });
-
-        // Generate form simulation buttons from formPatterns
-        (et.formPatterns || []).forEach(function(p) {
-            var btn = document.createElement('button');
-            btn.textContent = '📋 ' + p.event + ' (simulate)';
-            btn.setAttribute('style', btnStyle + 'background:#e67e22;');
-            btn.addEventListener('click', function() {
-                var form = document.querySelector(p.formSelector);
-                if (form) {
-                    var el = document.createElement('div');
-                    el.className = p.successSelector.replace(/^\./, '');
-                    el.textContent = 'Test success';
-                    form.appendChild(el);
-                } else {
-                    console.warn('[GTMToolkit Test] Form not found:', p.formSelector);
-                }
-            });
-            links.push(btn);
-        });
-
-        var panel = document.createElement('div');
-        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483647;background:#1a1a2e;padding:12px 20px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 -2px 10px rgba(0,0,0,0.3);';
-
-        var label = document.createElement('span');
-        label.textContent = 'GTM Toolkit v' + GTMToolkit.version + ' Test Panel';
-        label.style.cssText = 'color:#888;font-size:11px;margin-right:10px;';
-        panel.appendChild(label);
-
-        links.forEach(function(item) {
-            panel.appendChild(item);
-        });
-
-        document.body.appendChild(panel);
-    }
+    // -------------------------------------------------------------------
+    // Reset (for testing only)
+    // -------------------------------------------------------------------
+    GTMToolkit._reset = function() {
+        if (_cleanupFn) { _cleanupFn(); _cleanupFn = null; }
+        _defaultTransport = 'dataLayer';
+        _cookieExpiry = 30;
+        _debug = false;
+        _debugExplicit = false;
+        _rules = [];
+        _lastRule = null;
+        _started = false;
+        GTMToolkit.registeredEvents = [];
+    };
 
     window.GTMToolkit = GTMToolkit;
 })();
 
 /**
- * GTM Toolkit - Event Tracker
- * @description Configurable event tracking for GA4/GTM via gtag.
- *              Tracks link clicks (tel, mailto, maps), CSS-based click
- *              events, and form submissions via DOM observation.
- *              Supports mobileOnly gating with optional UAParser integration.
+ * GTM Toolkit - Listeners
+ * @description DOM event binding for link clicks, selector clicks, and form submissions.
+ *              Called by core.js during .start().
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  */
@@ -228,139 +339,160 @@
 
     var GTMToolkit = window.GTMToolkit;
 
+    // -------------------------------------------------------------------
+    // Device detection (private)
+    // -------------------------------------------------------------------
+
     /**
-     * EventTracker - Configurable event tracking via gtag.
-     * @constructor
-     * @param {Object}   [config]
-     * @param {Function} [config.deviceDetector]        - Custom function returning 'mobile', 'tablet', or 'desktop'.
-     * @param {Array}    [config.linkPatterns=[]]       - URL-based patterns matched against href.
-     * @param {Object}   config.linkPatterns[].pattern  - RegExp to match against link href.
-     * @param {string}   config.linkPatterns[].event    - gtag event name to fire.
-     * @param {boolean}  [config.linkPatterns[].newTab] - Force matched links to open in a new tab.
-     * @param {boolean}  [config.linkPatterns[].mobileOnly] - Only fire on mobile devices.
-     * @param {Array}    [config.clickPatterns=[]]      - CSS selector-based click patterns.
-     * @param {string}   config.clickPatterns[].selector - CSS selector to match clicked elements.
-     * @param {string}   config.clickPatterns[].event    - gtag event name to fire.
-     * @param {boolean}  [config.clickPatterns[].mobileOnly] - Only fire on mobile devices.
-     * @param {Array}    [config.formPatterns=[]]       - DOM observation-based form tracking.
-     * @param {string}   config.formPatterns[].formSelector    - CSS selector for the form container.
-     * @param {string}   config.formPatterns[].successSelector - CSS selector for the success element.
-     * @param {string}   config.formPatterns[].event           - gtag event name to fire.
+     * Detects device type using a three-tier strategy:
+     *   1. UAParser (if loaded globally)
+     *   2. Built-in lightweight regex + touch fallback
+     * @returns {string} 'mobile', 'tablet', or 'desktop'
      */
-    GTMToolkit.EventTracker = function(config) {
-        var self = this;
-        config = config || {};
-
-        self.linkPatterns = config.linkPatterns || [];
-        self.clickPatterns = config.clickPatterns || [];
-        self.formPatterns = config.formPatterns || [];
-        self.deviceDetector = config.deviceDetector || null;
-
-        // ---------------------------------------------------------------
-        // Logging (via shared factory)
-        // ---------------------------------------------------------------
-        var logger = GTMToolkit.createLogger('[GTMToolkit.EventTracker]');
-        self.log = logger.log;
-        self.error = logger.error;
-
-        // ---------------------------------------------------------------
-        // Device detection
-        // ---------------------------------------------------------------
-
-        /**
-         * Detects device type. Uses three-tier strategy:
-         *   1. Custom deviceDetector function (if provided)
-         *   2. UAParser (if loaded globally)
-         *   3. Built-in lightweight regex + touch fallback
-         * @returns {string} 'mobile', 'tablet', or 'desktop'
-         */
-        self.detectDevice = function() {
-            // Tier 1: custom detector
-            if (typeof self.deviceDetector === 'function') {
-                return self.deviceDetector();
-            }
-
-            // Tier 2: UAParser (auto-detected if loaded)
-            if (typeof window.UAParser === 'function') {
-                var ua = (new window.UAParser()).getResult();
-                if (ua && ua.device && ua.device.type) {
-                    return ua.device.type; // 'mobile', 'tablet', etc.
-                }
-                return 'desktop';
-            }
-
-            // Tier 3: built-in lightweight check
-            var agent = navigator.userAgent || '';
-            if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(agent)) {
-                return 'mobile';
-            }
-            if (/iPad|Android(?!.*Mobile)|Tablet/i.test(agent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(agent))) {
-                return 'tablet';
+    function detectDevice() {
+        // Tier 1: UAParser (auto-detected if loaded)
+        if (typeof window.UAParser === 'function') {
+            var ua = (new window.UAParser()).getResult();
+            if (ua && ua.device && ua.device.type) {
+                return ua.device.type;
             }
             return 'desktop';
-        };
+        }
 
-        self.isMobile = function() {
-            return self.detectDevice() === 'mobile';
-        };
+        // Tier 2: built-in lightweight check
+        var agent = navigator.userAgent || '';
+        if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(agent)) {
+            return 'mobile';
+        }
+        if (/iPad|Android(?!.*Mobile)|Tablet/i.test(agent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(agent))) {
+            return 'tablet';
+        }
+        return 'desktop';
+    }
 
+    function isMobile() {
+        return detectDevice() === 'mobile';
+    }
 
-        // ---------------------------------------------------------------
-        // Link tracking (URL pattern matching)
-        // ---------------------------------------------------------------
-        self.trackLink = function(link) {
-            var href = link.href || '';
-            if (!href) { return; }
+    // -------------------------------------------------------------------
+    // Link matching (private)
+    // -------------------------------------------------------------------
 
-            for (var i = 0; i < self.linkPatterns.length; i++) {
-                var p = self.linkPatterns[i];
-                if (href.match(p.pattern)) {
-                    if (p.mobileOnly && !self.isMobile()) {
-                        self.log('Skipped (not mobile):', p.event);
-                        return;
-                    }
-                    GTMToolkit.push(p.event, { link_url: href }, '[GTMToolkit.EventTracker]');
-                    if (p.newTab) {
-                        link.setAttribute('target', '_blank');
-                        link.setAttribute('rel', 'noopener noreferrer');
-                    }
-                    return;
+    /**
+     * Tests whether a URL matches a link rule's match pattern.
+     * Supports string (indexOf), array of strings (some(indexOf)), or RegExp (.test()).
+     * @param {string} href - The link URL to test.
+     * @param {string|Array|RegExp} match - The match pattern.
+     * @returns {boolean}
+     */
+    function matchesLink(href, match) {
+        if (match instanceof RegExp) {
+            return match.test(href);
+        }
+        if (Array.isArray(match)) {
+            for (var i = 0; i < match.length; i++) {
+                if (href.indexOf(match[i]) !== -1) {
+                    return true;
                 }
             }
+            return false;
+        }
+        // String match
+        return href.indexOf(match) !== -1;
+    }
 
-            self.log('No link pattern match:', href);
-        };
+    // -------------------------------------------------------------------
+    // Bind listeners (called from core.js .start())
+    // -------------------------------------------------------------------
 
-        // ---------------------------------------------------------------
-        // Click tracking (CSS selector matching)
-        // ---------------------------------------------------------------
-        self.trackClick = function(element) {
-            for (var i = 0; i < self.clickPatterns.length; i++) {
-                var p = self.clickPatterns[i];
-                if (element.closest(p.selector)) {
-                    if (p.mobileOnly && !self.isMobile()) {
-                        self.log('Skipped (not mobile):', p.event);
-                        return;
+    /**
+     * Binds DOM event listeners based on registered rules.
+     * @param {Array} rules - Array of rule objects from the builder.
+     * @param {string} defaultTransport - Default transport ('dataLayer' or 'gtag').
+     * @returns {Function} Cleanup function that removes all bound listeners.
+     */
+    GTMToolkit._bindListeners = function(rules, defaultTransport) {
+        var logger = GTMToolkit.createLogger('[GTMToolkit]');
+        var _clickHandler = null;
+        var _observer = null;
+
+        var linkRules = [];
+        var selectorRules = [];
+        var formRules = [];
+
+        // Partition rules by type
+        for (var i = 0; i < rules.length; i++) {
+            var r = rules[i];
+            if (r.type === 'link') { linkRules.push(r); }
+            else if (r.type === 'selector') { selectorRules.push(r); }
+            else if (r.type === 'form') { formRules.push(r); }
+        }
+
+        // Single delegated click handler for links + selectors
+        if (linkRules.length || selectorRules.length) {
+            _clickHandler = function(e) {
+                try {
+                    // Link matching
+                    var link = e.target.closest('a');
+                    if (link && linkRules.length) {
+                        var href = link.href || '';
+                        if (href) {
+                            for (var li = 0; li < linkRules.length; li++) {
+                                var lr = linkRules[li];
+                                if (matchesLink(href, lr.match)) {
+                                    if (lr.mobileOnly && !isMobile()) {
+                                        logger.log('Skipped (not mobile):', lr.event);
+                                        return;
+                                    }
+                                    var linkTransport = lr.transport || defaultTransport;
+                                    GTMToolkit.push(lr.event, { link_url: href }, linkTransport);
+                                    if (lr.newTab) {
+                                        link.setAttribute('target', '_blank');
+                                        link.setAttribute('rel', 'noopener noreferrer');
+                                    }
+                                    return;
+                                }
+                            }
+                        }
                     }
-                    GTMToolkit.push(p.event, {}, '[GTMToolkit.EventTracker]');
-                    return;
+
+                    // Selector matching
+                    for (var si = 0; si < selectorRules.length; si++) {
+                        var sr = selectorRules[si];
+                        if (e.target.closest(sr.selector)) {
+                            if (sr.mobileOnly && !isMobile()) {
+                                logger.log('Skipped (not mobile):', sr.event);
+                                return;
+                            }
+                            var selectorTransport = sr.transport || defaultTransport;
+                            GTMToolkit.push(sr.event, {}, selectorTransport);
+                            return;
+                        }
+                    }
+                } catch (err) {
+                    logger.error('Listener error:', err);
                 }
-            }
-        };
+            };
 
-        // ---------------------------------------------------------------
-        // Form tracking (MutationObserver-based)
-        // ---------------------------------------------------------------
-        self.trackForms = function() {
-            if (!self.formPatterns.length) { return; }
+            document.addEventListener('click', _clickHandler);
 
-            var observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(mutation) {
-                    mutation.addedNodes.forEach(function(node) {
-                        if (node.nodeType !== 1) { return; }
+            logger.log('Click tracking bound for',
+                linkRules.length, 'link +',
+                selectorRules.length, 'selector rule(s)');
+        }
+
+        // Form observation (MutationObserver)
+        if (formRules.length) {
+            _observer = new MutationObserver(function(mutations) {
+                for (var mi = 0; mi < mutations.length; mi++) {
+                    var mutation = mutations[mi];
+                    for (var ni = 0; ni < mutation.addedNodes.length; ni++) {
+                        var node = mutation.addedNodes[ni];
+                        if (node.nodeType !== 1) { continue; }
 
                         try {
-                            self.formPatterns.forEach(function(fp) {
+                            for (var fi = 0; fi < formRules.length; fi++) {
+                                var fp = formRules[fi];
                                 var match = (node.matches && node.matches(fp.successSelector))
                                     ? node
                                     : (node.querySelector ? node.querySelector(fp.successSelector) : null);
@@ -370,67 +502,42 @@
                                     var formId = form
                                         ? (form.id || form.getAttribute('data-form_id') || 'unknown')
                                         : 'unknown';
-                                    self.log('Form success detected:', fp.formSelector, 'formId:', formId);
-                                    GTMToolkit.push(fp.event, { form_id: formId }, '[GTMToolkit.EventTracker]');
+                                    var formTransport = fp.transport || defaultTransport;
+                                    logger.log('Form success detected:', fp.formSelector, 'formId:', formId);
+                                    GTMToolkit.push(fp.event, { form_id: formId }, formTransport);
                                 }
-                            });
+                            }
                         } catch (err) {
-                            self.error('Form tracking error:', err);
+                            logger.error('Form tracking error:', err);
                         }
-                    });
-                });
+                    }
+                }
             });
 
-            observer.observe(document.body, { childList: true, subtree: true });
-            self.log('Form observer active for', self.formPatterns.length, 'pattern(s)');
-        };
+            _observer.observe(document.body, { childList: true, subtree: true });
+            logger.log('Form observer active for', formRules.length, 'rule(s)');
+        }
 
-        // ---------------------------------------------------------------
-        // Initialization
-        // ---------------------------------------------------------------
-        self.init = function() {
-            if (GTMToolkit._eventTrackerBound) {
-                self.log('EventTracker already initialized, skipping duplicate');
-                return;
+        // Return cleanup function for test teardown
+        return function() {
+            if (_clickHandler) {
+                document.removeEventListener('click', _clickHandler);
+                _clickHandler = null;
             }
-            GTMToolkit._eventTrackerBound = true;
-
-            // Delegated click handler for link + CSS selector tracking
-            if (self.linkPatterns.length || self.clickPatterns.length) {
-                document.addEventListener('click', function(e) {
-                    try {
-                        var link = e.target.closest('a');
-                        if (link && self.linkPatterns.length) {
-                            self.trackLink(link);
-                        }
-                        if (self.clickPatterns.length) {
-                            self.trackClick(e.target);
-                        }
-                    } catch (err) {
-                        self.error('Tracking error:', err);
-                    }
-                });
-                self.log('Click tracking bound for',
-                    self.linkPatterns.length, 'link +',
-                    self.clickPatterns.length, 'selector pattern(s)');
+            if (_observer) {
+                _observer.disconnect();
+                _observer = null;
             }
-
-            // Form observation
-            self.trackForms();
-
-            self.log('initialized');
         };
-
-        self.init();
     };
 
 })();
 
 /**
- * GTM Toolkit - User Qualifier
- * @description Cookie-based user qualification for GTM/GA4.
- *              Tracks page views, JavaScript support, Google Ads clicks (gclid),
- *              and user inclusion signals via dataLayer.
+ * GTM Toolkit - Signals
+ * @description Cookie-based user signals for GTM/GA4.
+ *              Pushes user context events (hasJs, pageCount, include, gclid).
+ *              Runs automatically on .start().
  * @license MIT
  * @repository https://github.com/thecleanbedroom/gtm-toolkit
  */
@@ -439,150 +546,214 @@
 
     var GTMToolkit = window.GTMToolkit;
 
+    // -------------------------------------------------------------------
+    // Cookie helpers (private - not on namespace)
+    // -------------------------------------------------------------------
+
     /**
-     * UserQualifier - Cookie-based user qualification via dataLayer.
-     * @constructor
-     * @param {Object}  [config]
-     * @param {number}  [config.cookieExpiry=30]     - Default cookie expiry in days.
-     * @param {Object}  [config.keys]               - Cookie key overrides.
-     * @param {string}  [config.keys.pageViews='ga_user_page_views']
-     * @param {string}  [config.keys.hasJs='ga_user_has_js']
-     * @param {string}  [config.keys.include='ga_user_include']
-     * @param {string}  [config.keys.gclid='ga_user_from_ad']
-     * @param {Object}  [config.checks]             - Toggle individual checks.
-     * @param {boolean} [config.checks.hasJs=true]
-     * @param {boolean} [config.checks.pageCount=true]
-     * @param {boolean} [config.checks.include=true]
-     * @param {boolean} [config.checks.gclid=true]
+     * Get a cookie value by name.
+     * @param {string} name - Cookie name (will be regex-escaped).
+     * @returns {string|null} Cookie value or null.
      */
-    GTMToolkit.UserQualifier = function(config) {
-        var self = this;
-        config = config || {};
+    function getCookie(name) {
+        var escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var v = document.cookie.match('(^|;) ?' + escaped + '=([^;]*)(;|$)');
+        return v ? v[2] : null;
+    }
 
-        self.cookieExpiry = config.cookieExpiry != null ? config.cookieExpiry : 30;
+    /**
+     * Set a cookie with security attributes.
+     * @param {string} name - Cookie name.
+     * @param {*} value - Cookie value.
+     * @param {number} days - Expiry in days.
+     */
+    function setCookie(name, value, days) {
+        var d = new Date();
+        d.setTime(d.getTime() + 24 * 60 * 60 * 1000 * days);
+        document.cookie = name + '=' + value + ';path=/;expires=' + d.toGMTString() + ';SameSite=Lax;Secure';
+    }
 
-        var keys = config.keys || {};
-        self.keys = {
-            pageViews: keys.pageViews || 'ga_user_page_views',
-            hasJs:     keys.hasJs     || 'ga_user_has_js',
-            include:   keys.include   || 'ga_user_include',
-            gclid:     keys.gclid     || 'ga_user_from_ad'
-        };
+    /**
+     * Check if a cookie exists and has a non-empty value.
+     * @param {string} name - Cookie name.
+     * @returns {boolean}
+     */
+    function hasCookie(name) {
+        var val = getCookie(name);
+        return val !== null && val !== '';
+    }
 
-        var checks = config.checks || {};
-        self.checks = {
-            hasJs:     checks.hasJs !== false,
-            pageCount: checks.pageCount !== false,
-            include:   checks.include !== false,
-            gclid:     checks.gclid !== false
-        };
+    // -------------------------------------------------------------------
+    // Cookie key constants
+    // -------------------------------------------------------------------
+    var KEYS = {
+        pageViews: 'ga_user_page_views',
+        hasJs:     'ga_user_has_js',
+        include:   'ga_user_include',
+        gclid:     'ga_user_from_ad'
+    };
 
-        // ---------------------------------------------------------------
-        // Logging (via shared factory)
-        // ---------------------------------------------------------------
-        var logger = GTMToolkit.createLogger('[GTMToolkit.UserQualifier]');
-        self.log = logger.log;
-        self.error = logger.error;
+    // -------------------------------------------------------------------
+    // Run signals (called from core.js .start())
+    // -------------------------------------------------------------------
 
-        // ---------------------------------------------------------------
-        // Cookie helpers
-        // ---------------------------------------------------------------
-        self.getCookie = function(name) {
-            var escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            var v = document.cookie.match('(^|;) ?' + escaped + '=([^;]*)(;|$)');
-            return v ? v[2] : null;
-        };
+    /**
+     * Pushes user context signals based on cookie state.
+     * @param {number} cookieExpiry - Cookie expiry in days.
+     * @param {string} defaultTransport - Default transport for pushes.
+     */
+    GTMToolkit._runSignals = function(cookieExpiry, defaultTransport) {
+        var logger = GTMToolkit.createLogger('[GTMToolkit.Signals]');
 
-        self.setCookie = function(name, value, days) {
-            var d = new Date();
-            d.setTime(d.getTime() + 24 * 60 * 60 * 1000 * (days != null ? days : self.cookieExpiry));
-            document.cookie = name + '=' + value + ';path=/;expires=' + d.toGMTString() + ';SameSite=Lax;Secure';
-        };
+        // 1. hasJs - set once, never overwritten (365 days)
+        if (!hasCookie(KEYS.hasJs)) {
+            setCookie(KEYS.hasJs, 1, 365);
+            logger.log('JS cookie set');
+        }
 
-        self.removeCookie = function(name) {
-            self.setCookie(name, '', -1);
-        };
+        // 2. pageCount - increment on every page load
+        var count = parseInt(getCookie(KEYS.pageViews) || '0', 10);
+        if (isNaN(count)) { count = 0; }
+        count++;
+        setCookie(KEYS.pageViews, count, cookieExpiry);
+        logger.log('Page count:', count);
 
-        self.hasCookie = function(name) {
-            var val = self.getCookie(name);
-            return val !== null && val !== '';
-        };
+        // 3. include - push signal if returning visitor (visited before this page load)
+        if (count > 1) {
+            GTMToolkit.push(KEYS.include, { value: 1 }, defaultTransport);
+            setCookie(KEYS.include, 1, 1);
+            logger.log('User included (page', count + ')');
+        }
 
-
-        // ---------------------------------------------------------------
-        // Qualification checks
-        // ---------------------------------------------------------------
-
-        /**
-         * Sets a cookie indicating JavaScript is enabled.
-         * Persists for 365 days; only sets once.
-         */
-        self.setHasJs = function() {
-            var key = self.keys.hasJs;
-            if (self.hasCookie(key)) {
-                self.log('JS cookie already set');
-                return;
-            }
-            self.setCookie(key, 1, 365);
-            self.log('JS cookie set');
-        };
-
-        /**
-         * Increments the page view count cookie on each page load.
-         */
-        self.setPageCount = function() {
-            var key = self.keys.pageViews;
-            var count = self.hasCookie(key) ? parseInt(self.getCookie(key), 10) : 0;
-            if (isNaN(count)) { count = 0; }
-            count++;
-            self.setCookie(key, count, self.cookieExpiry);
-            self.log('Page count:', count);
-        };
-
-        /**
-         * Pushes an inclusion event if the user has visited before
-         * (page view cookie exists from a prior page load).
-         */
-        self.setInclude = function() {
-            if (self.hasCookie(self.keys.pageViews)) {
-                GTMToolkit.push(self.keys.include, { value: 1 }, '[GTMToolkit.UserQualifier]');
-                self.setCookie(self.keys.include, 1, 1);
-                self.log('User included');
-            }
-        };
-
-        /**
-         * Detects gclid parameter in URL and persists via cookie.
-         * Pushes a hasGclid event on subsequent page loads if previously detected.
-         */
-        self.setHasGclid = function() {
-            var key = self.keys.gclid;
-
-            if (self.hasCookie(key) && self.getCookie(key) === '1') {
-                GTMToolkit.push('hasGclid', { value: 1 }, '[GTMToolkit.UserQualifier]');
-                self.log('Returning gclid user');
-                return;
-            }
-
+        // 4. gclid - detect from URL, persist, push signal on return
+        if (hasCookie(KEYS.gclid) && getCookie(KEYS.gclid) === '1') {
+            GTMToolkit.push('hasGclid', { value: 1 }, defaultTransport);
+            logger.log('Returning gclid user');
+        } else {
             var match = window.location.search.match(/[?&]gclid=([^&]+)/);
             var hasGclid = match && match[1] ? 1 : 0;
-            self.setCookie(key, hasGclid, self.cookieExpiry);
-            self.log('Gclid detected:', !!hasGclid);
-        };
+            setCookie(KEYS.gclid, hasGclid, cookieExpiry);
+            if (hasGclid) {
+                logger.log('Gclid detected from URL');
+            }
+        }
 
-        // ---------------------------------------------------------------
-        // Initialization
-        // ---------------------------------------------------------------
-        self.init = function() {
-            if (self.checks.hasJs)     { self.setHasJs(); }
-            if (self.checks.pageCount) { self.setPageCount(); }
-            if (self.checks.include)   { self.setInclude(); }
-            if (self.checks.gclid)     { self.setHasGclid(); }
+        logger.log('Signals complete');
+    };
 
-            self.log('initialized');
-        };
+})();
 
-        self.init();
+/**
+ * GTM Toolkit - Test Panel
+ * @description Floating debug panel with clickable elements for each registered rule.
+ *              Only rendered when Tag Assistant (__TAG_ASSISTANT_API) is active.
+ * @license MIT
+ * @repository https://github.com/thecleanbedroom/gtm-toolkit
+ */
+(function() {
+    'use strict';
+
+    var GTMToolkit = window.GTMToolkit;
+
+    var BTN_STYLE = 'color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;' +
+        'font-weight:bold;font-size:13px;border:none;cursor:pointer;display:inline-block;';
+
+    /**
+     * Infer a sample href from a link match pattern for the test panel.
+     * @param {string|Array|RegExp} match - The link match pattern.
+     * @returns {{ href: string, icon: string }}
+     */
+    function inferLinkSample(match) {
+        var sample = { href: 'https://example.com/test', icon: '\uD83D\uDD17' };
+        var source = '';
+
+        if (match instanceof RegExp) {
+            source = match.source || '';
+        } else if (Array.isArray(match)) {
+            source = match.join(' ');
+        } else {
+            source = match;
+        }
+
+        if (/tel/i.test(source)) {
+            sample.href = 'tel:+15551234567';
+            sample.icon = '\uD83D\uDCDE';
+        } else if (/mailto/i.test(source)) {
+            sample.href = 'mailto:test@example.com';
+            sample.icon = '\uD83D\uDCE7';
+        } else if (/maps/i.test(source)) {
+            sample.href = 'https://maps.google.com/maps?q=test';
+            sample.icon = '\uD83D\uDCCD';
+        }
+
+        return sample;
+    }
+
+    /**
+     * Renders a floating test panel with clickable elements matching registered rules.
+     * @param {Array} rules - Array of rule objects from the builder.
+     */
+    GTMToolkit._renderTestPanel = function(rules) {
+        var elements = [];
+
+        for (var i = 0; i < rules.length; i++) {
+            var rule = rules[i];
+
+            if (rule.type === 'link') {
+                var sample = inferLinkSample(rule.match);
+                var a = document.createElement('a');
+                a.href = sample.href;
+                a.setAttribute('style', BTN_STYLE + 'background:#2ecc71;');
+                a.textContent = sample.icon + ' ' + rule.event + (rule.mobileOnly ? ' (mobile)' : '');
+                elements.push(a);
+            }
+
+            if (rule.type === 'selector') {
+                var btn = document.createElement('button');
+                var className = rule.selector.replace(/^[.#]/, '');
+                btn.className = className;
+                btn.setAttribute('style', BTN_STYLE + 'background:#9b59b6;');
+                btn.textContent = '\uD83D\uDCAC ' + rule.event;
+                elements.push(btn);
+            }
+
+            if (rule.type === 'form') {
+                var formBtn = document.createElement('button');
+                formBtn.textContent = '\uD83D\uDCCB ' + rule.event + ' (simulate)';
+                formBtn.setAttribute('style', BTN_STYLE + 'background:#e67e22;');
+                formBtn.addEventListener('click', (function(fp) {
+                    return function() {
+                        var form = document.querySelector(fp.formSelector);
+                        if (form) {
+                            var el = document.createElement('div');
+                            el.className = fp.successSelector.replace(/^\./, '');
+                            el.textContent = 'Test success';
+                            form.appendChild(el);
+                        } else {
+                            console.warn('[GTMToolkit Test] Form not found:', fp.formSelector);
+                        }
+                    };
+                })(rule));
+                elements.push(formBtn);
+            }
+        }
+
+        var panel = document.createElement('div');
+        panel.setAttribute('data-gtm-test-panel', 'true');
+        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483647;' +
+            'background:#1a1a2e;padding:12px 20px;display:flex;flex-wrap:wrap;gap:10px;' +
+            'align-items:center;box-shadow:0 -2px 10px rgba(0,0,0,0.3);';
+
+        var label = document.createElement('span');
+        label.textContent = 'GTM Toolkit v' + GTMToolkit.version + ' Test Panel';
+        label.style.cssText = 'color:#888;font-size:11px;margin-right:10px;';
+        panel.appendChild(label);
+
+        for (var j = 0; j < elements.length; j++) {
+            panel.appendChild(elements[j]);
+        }
+
+        document.body.appendChild(panel);
     };
 
 })();

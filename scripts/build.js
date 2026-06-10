@@ -11,21 +11,19 @@ var DIST = path.join(ROOT, 'dist');
 var PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
 // ---------------------------------------------------------------------------
-// Auto-discover modules: all .js files in src/ (excluding .test.js)
+// Module order: explicit, not alphabetical. Core must load first.
 // ---------------------------------------------------------------------------
 var SRC = path.join(ROOT, 'src');
 
-var modules = fs.readdirSync(SRC)
-  .filter(function(f) {
-    return f.endsWith('.js') && !f.endsWith('.test.js');
-  })
-  .sort()
-  .map(function(f) {
-    return {
-      name: f.replace('.js', ''),
-      path: path.join(SRC, f)
-    };
-  });
+var moduleOrder = ['core', 'listeners', 'signals', 'test-panel'];
+var modules = moduleOrder.map(function(name) {
+  var filePath = path.join(SRC, name + '.js');
+  if (!fs.existsSync(filePath)) {
+    console.error('Missing source file: ' + name + '.js');
+    process.exit(1);
+  }
+  return { name: name, path: filePath };
+});
 
 if (modules.length === 0) {
   console.error('No source files found in src/. Expected *.js files (excluding *.test.js).');

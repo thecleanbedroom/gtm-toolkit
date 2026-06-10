@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test-and-build:
+  test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,14 +26,29 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build dist bundle
+      - name: Verify dist bundle
         run: npm run build
 
-      - name: Purge jsDelivr CDN cache
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          echo "Waiting 30s for GitHub CDN to propagate..."
-          sleep 30
-          curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.js" || true
-          curl -sf "https://purge.jsdelivr.net/gh/thecleanbedroom/gtm-toolkit@main/dist/gtm-toolkit.min.js" || true
-          echo "jsDelivr cache purged"
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
